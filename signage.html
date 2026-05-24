@@ -1,0 +1,544 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=1920">
+  <title>Digital Signage</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@700&family=Rajdhani:wght@600;700&display=swap" rel="stylesheet">
+  <style>
+    /* ── Reset ─────────────────────────────────────────── */
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    html, body {
+      width: 100%; height: 100%;
+      background: #0a0a0f;
+      overflow: hidden;
+      font-family: 'Rajdhani', system-ui, sans-serif;
+      color: #e0e0e0;
+      touch-action: none;
+    }
+
+    /* ── Slide Container ───────────────────────────────── */
+    #slide-container {
+      position: fixed;
+      inset: 0;
+      z-index: 0;
+    }
+
+    .slide {
+      position: absolute;
+      inset: 0;
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity 0.45s ease;
+    }
+
+    .slide.active {
+      opacity: 1;
+      pointer-events: auto;
+    }
+
+    .slide > iframe {
+      width: 100%;
+      height: 100%;
+      border: none;
+      display: block;
+    }
+
+    .slide > .tv-widget-wrap {
+      width: 100%;
+      height: 100%;
+    }
+
+    .tv-widget-wrap .tradingview-widget-container {
+      width: 100% !important;
+      height: 100% !important;
+    }
+
+    .tv-widget-wrap .tradingview-widget-container__widget {
+      width: 100% !important;
+      height: 100% !important;
+    }
+
+    /* ── Clock ─────────────────────────────────────────── */
+    #clock {
+      position: fixed;
+      top: 20px;
+      left: 20px;
+      z-index: 1000;
+      padding: 14px 22px 16px;
+      background: rgba(8, 8, 18, 0.72);
+      backdrop-filter: blur(14px);
+      -webkit-backdrop-filter: blur(14px);
+      border: 1px solid rgba(0, 212, 255, 0.22);
+      border-radius: 14px;
+      user-select: none;
+      pointer-events: none;
+    }
+
+    #clock-date {
+      font-family: 'Rajdhani', sans-serif;
+      font-size: 18px;
+      font-weight: 600;
+      color: #8bbccc;
+      letter-spacing: 0.06em;
+      text-shadow: 0 0 10px rgba(0, 212, 255, 0.5);
+    }
+
+    #clock-day {
+      font-family: 'Rajdhani', sans-serif;
+      font-size: 15px;
+      font-weight: 600;
+      color: #00d4ff;
+      letter-spacing: 0.12em;
+      margin-top: 2px;
+      text-shadow: 0 0 10px rgba(0, 212, 255, 0.7);
+    }
+
+    #clock-time {
+      font-family: 'Orbitron', monospace;
+      font-size: 74px;
+      font-weight: 700;
+      line-height: 1.0;
+      color: #ffffff;
+      letter-spacing: 0.04em;
+      margin-top: 6px;
+      text-shadow: 0 0 20px rgba(0, 212, 255, 0.35), 0 2px 4px rgba(0,0,0,0.8);
+    }
+
+    /* ── Progress Bar ──────────────────────────────────── */
+    #progress-bar {
+      position: fixed;
+      bottom: 0;
+      left: 0;
+      width: 100%;
+      height: 4px;
+      z-index: 1000;
+      background: rgba(0, 212, 255, 0.1);
+      pointer-events: none;
+    }
+
+    #progress-fill {
+      height: 100%;
+      width: 0%;
+      background: linear-gradient(90deg, #00aaff, #00d4ff, #00ffee);
+      box-shadow: 0 0 10px #00d4ff, 0 0 20px rgba(0, 212, 255, 0.4);
+    }
+
+    #progress-fill.animating {
+      animation: progressSweep var(--rotation-interval, 15s) linear forwards;
+    }
+
+    @keyframes progressSweep {
+      from { width: 0%; }
+      to   { width: 100%; }
+    }
+
+    /* ── Site Nav ──────────────────────────────────────── */
+    #site-nav {
+      position: fixed;
+      right: 18px;
+      top: 50%;
+      transform: translateY(-50%);
+      z-index: 1000;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+      align-items: center;
+    }
+
+    .nav-btn {
+      position: relative;
+      width: 52px;
+      min-height: 52px;
+      padding: 12px 6px;
+      border-radius: 26px;
+      border: 1px solid rgba(255, 255, 255, 0.13);
+      background: rgba(255, 255, 255, 0.06);
+      backdrop-filter: blur(12px);
+      -webkit-backdrop-filter: blur(12px);
+      color: #9ab0bc;
+      font-family: 'Rajdhani', sans-serif;
+      font-size: 13px;
+      font-weight: 700;
+      letter-spacing: 0.04em;
+      text-align: center;
+      cursor: pointer;
+      user-select: none;
+      touch-action: manipulation;
+      transition: background 0.2s, box-shadow 0.2s, border-color 0.2s, color 0.2s;
+      writing-mode: vertical-rl;
+      text-orientation: mixed;
+      line-height: 1.3;
+    }
+
+    .nav-btn:hover {
+      background: rgba(255, 255, 255, 0.1);
+      border-color: rgba(0, 212, 255, 0.35);
+      color: #c8dde5;
+    }
+
+    /* Active: currently shown site */
+    .nav-btn.active {
+      border-color: #00d4ff;
+      color: #00d4ff;
+      background: rgba(0, 212, 255, 0.08);
+      box-shadow:
+        0 0 10px rgba(0, 212, 255, 0.55),
+        0 0 28px rgba(0, 212, 255, 0.18),
+        inset 0 0 8px rgba(0, 212, 255, 0.08);
+    }
+
+    /* Holding: manually held site */
+    .nav-btn.holding {
+      border-color: #ffaa00;
+      color: #ffcc44;
+      background: rgba(255, 170, 0, 0.08);
+      box-shadow:
+        0 0 10px rgba(255, 170, 0, 0.65),
+        0 0 28px rgba(255, 170, 0, 0.22);
+      animation: holdPulse 1.6s ease-in-out infinite;
+    }
+
+    @keyframes holdPulse {
+      0%, 100% { box-shadow: 0 0 10px rgba(255,170,0,0.65), 0 0 28px rgba(255,170,0,0.22); }
+      50%       { box-shadow: 0 0 18px rgba(255,170,0,0.95), 0 0 44px rgba(255,170,0,0.45); }
+    }
+
+    /* Hold countdown badge */
+    .nav-btn.holding::after {
+      content: attr(data-countdown);
+      position: absolute;
+      top: -9px;
+      right: -9px;
+      background: #ffaa00;
+      color: #0a0a0f;
+      font-size: 10px;
+      font-family: 'Orbitron', monospace;
+      font-weight: 700;
+      padding: 2px 5px;
+      border-radius: 8px;
+      writing-mode: horizontal-tb;
+      line-height: 1.5;
+      min-width: 28px;
+      text-align: center;
+      box-shadow: 0 0 6px rgba(255,170,0,0.8);
+    }
+
+    /* ── Hold status bar (top) ─────────────────────────── */
+    #hold-bar {
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 3px;
+      z-index: 1001;
+      background: transparent;
+      pointer-events: none;
+      transition: background 0.3s;
+    }
+
+    #hold-bar.visible {
+      background: linear-gradient(90deg,
+        transparent 0%,
+        rgba(255,170,0,0.6) 30%,
+        rgba(255,170,0,0.6) 70%,
+        transparent 100%);
+      box-shadow: 0 0 12px rgba(255,170,0,0.5);
+      animation: holdBarPulse 1.6s ease-in-out infinite;
+    }
+
+    @keyframes holdBarPulse {
+      0%, 100% { opacity: 0.7; }
+      50%       { opacity: 1.0; }
+    }
+  </style>
+</head>
+<body oncontextmenu="return false;">
+
+  <div id="slide-container"></div>
+
+  <div id="clock">
+    <div id="clock-date"></div>
+    <div id="clock-day"></div>
+    <div id="clock-time"></div>
+  </div>
+
+  <div id="progress-bar">
+    <div id="progress-fill"></div>
+  </div>
+
+  <div id="hold-bar"></div>
+
+  <nav id="site-nav"></nav>
+
+  <script>
+    /* ═══════════════════════════════════════════════════════
+       CONFIG — タイマー設定（ms）
+    ═══════════════════════════════════════════════════════ */
+    const CONFIG = {
+      rotationInterval: 15000,  // 自動切り替え間隔 (ms)
+      holdDuration:     60000,  // 手動固定の継続時間 (ms)
+    };
+
+    /* ═══════════════════════════════════════════════════════
+       SITES — 表示サイト定義
+       type: 'iframe'      → url を iframe で表示
+       type: 'tv-heatmap'  → TradingView 公式ウィジェットを埋め込み
+    ═══════════════════════════════════════════════════════ */
+    const SITES = [
+      {
+        id:   'hems',
+        name: 'HEMS',
+        type: 'iframe',
+        url:  'https://hems.kgkgrr-dev.uk/',
+      },
+      {
+        id:   'sp500',
+        name: 'S&P',
+        type: 'tv-heatmap',
+        tvConfig: {
+          dataSource:        'SPX500',
+          grouping:          'sector',
+          blockSize:         'market_cap_basic',
+          blockColor:        'change',
+          colorTheme:        'dark',
+        },
+      },
+      {
+        id:   'nikkei',
+        name: '日経',
+        type: 'tv-heatmap',
+        tvConfig: {
+          dataSource:        'NI225',
+          grouping:          'sector',
+          blockSize:         'market_cap_basic',
+          blockColor:        'change',
+          colorTheme:        'dark',
+        },
+      },
+    ];
+
+    /* ═══════════════════════════════════════════════════════
+       State
+    ═══════════════════════════════════════════════════════ */
+    let currentIndex   = 0;
+    let rotationTimer  = null;
+    let holdTimer      = null;
+    let countdownTimer = null;
+    let holdEndTime    = null;
+    let slides         = [];  // parallel to SITES
+    let navBtns        = [];  // parallel to SITES
+
+    /* ── Clock ──────────────────────────────────────────── */
+    const DAYS_JA = ['日', '月', '火', '水', '木', '金', '土'];
+
+    function updateClock() {
+      const now = new Date();
+      const Y   = now.getFullYear();
+      const M   = String(now.getMonth() + 1).padStart(2, '0');
+      const D   = String(now.getDate()).padStart(2, '0');
+      const dow = DAYS_JA[now.getDay()];
+      const h   = String(now.getHours()).padStart(2, '0');
+      const m   = String(now.getMinutes()).padStart(2, '0');
+      const s   = String(now.getSeconds()).padStart(2, '0');
+      document.getElementById('clock-date').textContent = `${Y}年${M}月${D}日`;
+      document.getElementById('clock-day').textContent  = `（${dow}曜日）`;
+      document.getElementById('clock-time').textContent = `${h}:${m}:${s}`;
+    }
+
+    function startClock() {
+      updateClock();
+      setInterval(updateClock, 1000);
+    }
+
+    /* ── Progress Bar ───────────────────────────────────── */
+    function restartProgressBar() {
+      const fill = document.getElementById('progress-fill');
+      fill.classList.remove('animating');
+      void fill.offsetWidth; // force reflow to restart animation
+      fill.classList.add('animating');
+    }
+
+    function stopProgressBar() {
+      const fill = document.getElementById('progress-fill');
+      fill.classList.remove('animating');
+      fill.style.width = '0%';
+    }
+
+    /* ── Hold Countdown ─────────────────────────────────── */
+    function updateHoldCountdown(index) {
+      if (holdEndTime === null) return;
+      const remaining = Math.max(0, Math.ceil((holdEndTime - Date.now()) / 1000));
+      navBtns[index].dataset.countdown = remaining + 's';
+    }
+
+    /* ── Rotation ───────────────────────────────────────── */
+    function startRotation() {
+      stopRotation();
+      rotationTimer = setInterval(() => {
+        showSite((currentIndex + 1) % SITES.length, false);
+      }, CONFIG.rotationInterval);
+    }
+
+    function stopRotation() {
+      if (rotationTimer !== null) {
+        clearInterval(rotationTimer);
+        rotationTimer = null;
+      }
+    }
+
+    function resumeFromHold() {
+      clearInterval(countdownTimer);
+      countdownTimer = null;
+      holdTimer      = null;
+      holdEndTime    = null;
+
+      navBtns[currentIndex].classList.remove('holding');
+      navBtns[currentIndex].removeAttribute('data-countdown');
+      document.getElementById('hold-bar').classList.remove('visible');
+
+      startRotation();
+      restartProgressBar();
+    }
+
+    /* ── Show Site ──────────────────────────────────────── */
+    function showSite(index, isManual) {
+      index = ((index % SITES.length) + SITES.length) % SITES.length;
+
+      // Update slides
+      slides.forEach((slide, i) => slide.classList.toggle('active', i === index));
+
+      // Update nav buttons — clear all states
+      navBtns.forEach((btn, i) => {
+        btn.classList.remove('active', 'holding');
+        btn.removeAttribute('data-countdown');
+      });
+      navBtns[index].classList.add('active');
+
+      currentIndex = index;
+
+      if (isManual) {
+        clearTimeout(holdTimer);
+        clearInterval(countdownTimer);
+
+        navBtns[index].classList.add('holding');
+        document.getElementById('hold-bar').classList.add('visible');
+
+        holdEndTime = Date.now() + CONFIG.holdDuration;
+        updateHoldCountdown(index);
+        countdownTimer = setInterval(() => updateHoldCountdown(index), 1000);
+
+        holdTimer = setTimeout(resumeFromHold, CONFIG.holdDuration);
+
+        stopRotation();
+        stopProgressBar();
+      } else {
+        restartProgressBar();
+      }
+    }
+
+    /* ── Nav Tap ────────────────────────────────────────── */
+    function onNavTap(index) {
+      // Same button re-tap while holding → extend hold timer
+      if (index === currentIndex && navBtns[index].classList.contains('holding')) {
+        clearTimeout(holdTimer);
+        clearInterval(countdownTimer);
+        holdEndTime = Date.now() + CONFIG.holdDuration;
+        updateHoldCountdown(index);
+        countdownTimer = setInterval(() => updateHoldCountdown(index), 1000);
+        holdTimer = setTimeout(resumeFromHold, CONFIG.holdDuration);
+        return;
+      }
+      showSite(index, true);
+    }
+
+    /* ── Build TradingView widget slide ─────────────────── */
+    function buildTvHeatmapSlide(site) {
+      const wrap = document.createElement('div');
+      wrap.className = 'tv-widget-wrap';
+
+      const tvContainer = document.createElement('div');
+      tvContainer.className = 'tradingview-widget-container';
+
+      const tvWidget = document.createElement('div');
+      tvWidget.className = 'tradingview-widget-container__widget';
+      tvContainer.appendChild(tvWidget);
+
+      const script = document.createElement('script');
+      script.type  = 'text/javascript';
+      script.src   = 'https://s3.tradingview.com/external-embedding/embed-widget-stock-heatmap.js';
+      script.async = true;
+      script.textContent = JSON.stringify({
+        ...site.tvConfig,
+        locale:           'ja',
+        width:            '100%',
+        height:           '100%',
+        hasTopBar:        false,
+        isDataSetEnabled: false,
+        isZoomEnabled:    true,
+        hasSymbolTooltip: true,
+        isMonoSize:       false,
+      });
+      tvContainer.appendChild(script);
+      wrap.appendChild(tvContainer);
+      return wrap;
+    }
+
+    /* ── Init ───────────────────────────────────────────── */
+    function init() {
+      const container = document.getElementById('slide-container');
+      const nav       = document.getElementById('site-nav');
+      const fill      = document.getElementById('progress-fill');
+
+      // Inject rotation interval as CSS variable for animation duration
+      fill.style.setProperty('--rotation-interval', CONFIG.rotationInterval + 'ms');
+
+      // Build slides
+      SITES.forEach((site) => {
+        const slide = document.createElement('div');
+        slide.className    = 'slide';
+        slide.dataset.id   = site.id;
+
+        if (site.type === 'iframe') {
+          const iframe = document.createElement('iframe');
+          iframe.src     = site.url;
+          iframe.allow   = 'autoplay; fullscreen';
+          iframe.loading = 'eager';
+          slide.appendChild(iframe);
+        } else if (site.type === 'tv-heatmap') {
+          slide.appendChild(buildTvHeatmapSlide(site));
+        }
+
+        container.appendChild(slide);
+        slides.push(slide);
+      });
+
+      // Build nav buttons
+      SITES.forEach((site, i) => {
+        const btn = document.createElement('button');
+        btn.className   = 'nav-btn';
+        btn.textContent = site.name;
+        btn.dataset.index = i;
+        btn.addEventListener('pointerdown', (e) => {
+          e.stopPropagation();
+          onNavTap(i);
+        });
+        nav.appendChild(btn);
+        navBtns.push(btn);
+      });
+
+      startClock();
+      showSite(0, false);
+      startRotation();
+
+      // Suppress context menu from touch hold
+      document.addEventListener('contextmenu', (e) => e.preventDefault());
+    }
+
+    document.addEventListener('DOMContentLoaded', init);
+  </script>
+</body>
+</html>
