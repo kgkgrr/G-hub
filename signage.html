@@ -404,6 +404,27 @@
       restartProgressBar();
     }
 
+    /* ── Trigger Hold (ナビボタン・画面操作 共通) ────────── */
+    function triggerHold(index) {
+      clearTimeout(holdTimer);
+      clearInterval(countdownTimer);
+
+      navBtns.forEach((btn, i) => {
+        if (i !== index) btn.classList.remove('holding');
+      });
+      navBtns[index].classList.add('holding');
+      document.getElementById('hold-bar').classList.add('visible');
+
+      holdEndTime = Date.now() + CONFIG.holdDuration;
+      updateHoldCountdown(index);
+      countdownTimer = setInterval(() => updateHoldCountdown(index), 1000);
+
+      holdTimer = setTimeout(resumeFromHold, CONFIG.holdDuration);
+
+      stopRotation();
+      stopProgressBar();
+    }
+
     /* ── Show Site ──────────────────────────────────────── */
     function showSite(index, isManual) {
       index = ((index % SITES.length) + SITES.length) % SITES.length;
@@ -412,7 +433,7 @@
       slides.forEach((slide, i) => slide.classList.toggle('active', i === index));
 
       // Update nav buttons — clear all states
-      navBtns.forEach((btn, i) => {
+      navBtns.forEach((btn) => {
         btn.classList.remove('active', 'holding');
         btn.removeAttribute('data-countdown');
       });
@@ -421,20 +442,7 @@
       currentIndex = index;
 
       if (isManual) {
-        clearTimeout(holdTimer);
-        clearInterval(countdownTimer);
-
-        navBtns[index].classList.add('holding');
-        document.getElementById('hold-bar').classList.add('visible');
-
-        holdEndTime = Date.now() + CONFIG.holdDuration;
-        updateHoldCountdown(index);
-        countdownTimer = setInterval(() => updateHoldCountdown(index), 1000);
-
-        holdTimer = setTimeout(resumeFromHold, CONFIG.holdDuration);
-
-        stopRotation();
-        stopProgressBar();
+        triggerHold(index);
       } else {
         restartProgressBar();
       }
@@ -442,17 +450,20 @@
 
     /* ── Nav Tap ────────────────────────────────────────── */
     function onNavTap(index) {
-      // Same button re-tap while holding → extend hold timer
+      // 同じボタンを再タップ → ホールドタイマーをリセット（延長）
       if (index === currentIndex && navBtns[index].classList.contains('holding')) {
-        clearTimeout(holdTimer);
-        clearInterval(countdownTimer);
-        holdEndTime = Date.now() + CONFIG.holdDuration;
-        updateHoldCountdown(index);
-        countdownTimer = setInterval(() => updateHoldCountdown(index), 1000);
-        holdTimer = setTimeout(resumeFromHold, CONFIG.holdDuration);
+        triggerHold(index);
         return;
       }
       showSite(index, true);
+    }
+
+    /* ── Iframe 内操作の検知 ─────────────────────────────── */
+    function onIframeInteraction() {
+      // iframe 内をタップ・クリックすると window がフォーカスを失う
+      // キオスク外（Alt+Tab 等）では発生しないが、万一のため無操作時は無視
+      if (document.visibilityState !== 'visible') return;
+      triggerHold(currentIndex);
     }
 
     /* ── Build TradingView widget slide ─────────────────── */
@@ -533,6 +544,10 @@
       startClock();
       showSite(0, false);
       startRotation();
+
+      // iframe 内操作（タップ・スクロール・リンク遷移）でホールドを発動
+      // ユーザーが iframe をタップすると window がフォーカスを失い blur が発火する
+      window.addEventListener('blur', onIframeInteraction);
 
       // Suppress context menu from touch hold
       document.addEventListener('contextmenu', (e) => e.preventDefault());
