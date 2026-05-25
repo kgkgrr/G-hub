@@ -279,8 +279,9 @@
        CONFIG — タイマー設定（ms）
     ═══════════════════════════════════════════════════════ */
     const CONFIG = {
-      rotationInterval: 15000,  // 自動切り替え間隔 (ms)
-      holdDuration:     60000,  // 手動固定の継続時間 (ms)
+      rotationInterval:      15000,  // 自動切り替え間隔 (ms)
+      holdDuration:          60000,  // 手動固定の継続時間 (ms)
+      activityCheckInterval: 10000,  // iframe 閲覧中の hold 延長チェック間隔 (ms)
     };
 
     /* ═══════════════════════════════════════════════════════
@@ -548,6 +549,14 @@
       // iframe 内操作（タップ・スクロール・リンク遷移）でホールドを発動
       // ユーザーが iframe をタップすると window がフォーカスを失い blur が発火する
       window.addEventListener('blur', onIframeInteraction);
+
+      // 閲覧継続中の hold 延長：activeElement が iframe のままなら hold をリセット
+      // blur は「入った瞬間」しか発火しないため、ポーリングで閲覧継続を検知する
+      setInterval(() => {
+        if (document.activeElement?.tagName === 'IFRAME') {
+          triggerHold(currentIndex);
+        }
+      }, CONFIG.activityCheckInterval);
 
       // Suppress context menu from touch hold
       document.addEventListener('contextmenu', (e) => e.preventDefault());
