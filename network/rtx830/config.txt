@@ -1,6 +1,6 @@
 # YAMAHA RTX830 初期設定
 # 回線: NTT フレッツ光
-# プロバイダー: アンドライン (PPPoE接続)
+# プロバイダー: アンドライン (PPPoE接続、IPv4/IPv6 デュアルスタック)
 #
 # 【事前準備】
 #   アンドラインから届いた書類に記載の以下を手元に用意してください:
@@ -48,6 +48,8 @@ pp select 1
  ppp ccp type none
  ip pp address dhcp
  ip pp nat descriptor 1
+ ipv6 pp dhcp service client ir=off
+ ipv6 pp address dhcp-prefix@lan1::
  pp enable 1
 
 # -----------------------------------------------------------------------
@@ -58,7 +60,18 @@ nat descriptor address outer 1 ipcp
 nat descriptor address inner 1 192.168.1.0/24
 
 # -----------------------------------------------------------------------
-# パケットフィルター（外部からの不正アクセス防止）
+# IPv6 LAN1 設定（RA でPC側へプレフィックスを配布）
+# -----------------------------------------------------------------------
+ipv6 prefix 1 dhcp-prefix@lan1::/64
+ipv6 lan1 address dhcp-prefix@lan1::1/64
+ipv6 lan1 rtadv send 1 o_flag=on
+ipv6 lan1 dhcp service server
+
+# IPv6 デフォルトルート
+ipv6 route default gateway pp 1
+
+# -----------------------------------------------------------------------
+# パケットフィルター IPv4（外部からの不正アクセス防止）
 # -----------------------------------------------------------------------
 ip filter 100 reject * * udp,tcp 135 *
 ip filter 101 reject * * udp,tcp * 135
@@ -73,6 +86,19 @@ ip filter 200 pass * *
 
 ip pp secure filter in 100 101 102 103 104 105 106 107 108 200
 ip pp secure filter out 200
+
+# -----------------------------------------------------------------------
+# パケットフィルター IPv6（外部からの不正アクセス防止）
+# -----------------------------------------------------------------------
+ipv6 filter 100 pass * * icmp6 * *
+ipv6 filter 101 pass * * tcp * established
+ipv6 filter 102 pass * * udp * 546
+ipv6 filter 200 reject * *
+
+ipv6 pp secure filter in 100 101 102 200
+ipv6 pp secure filter out 200
+ipv6 lan1 secure filter in 200
+ipv6 lan1 secure filter out 200
 
 # -----------------------------------------------------------------------
 # DHCP サーバー（PC等に自動でIPを配布）
