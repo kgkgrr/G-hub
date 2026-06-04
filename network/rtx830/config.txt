@@ -1,27 +1,25 @@
 # YAMAHA RTX830 初期設定
 # 回線: NTT フレッツ光
-# プロバイダー: アンドライン (PPPoE接続、IPv4/IPv6 デュアルスタック)
+# プロバイダー: アンドライン
+# 接続方式: IPoE (v6プラス MAP-E) ── IPv4/IPv6 デュアルスタック
 #
-# 【事前準備】
-#   アンドラインから届いた書類に記載の以下を手元に用意してください:
-#     - PPPoE接続ID  例: xxxxxx@andline.ne.jp
-#     - PPPoEパスワード
+# 【v6プラスの仕組み】
+#   IPv6: LAN2 で DHCPv6-PD → IPoE ネイティブ接続
+#   IPv4: MAP-E トンネル経由（PPPoEは不要）
 #
 # 【接続構成】
-#   ONU (NTT光終端装置)
-#     └─ LAN2 (WAN側) ─ RTX830 ─ LAN1 (内部LAN) ─ PC / スイッチ等
+#   ONU ──(LAN2/WAN)── RTX830 ──(LAN1)── PC / スイッチ等
 #
 # 【適用方法】
-#   1. RTX830 の管理画面 (http://192.168.1.1) または Telnet/SSH でログイン
-#   2. 以下の設定を上から順に貼り付けて実行
-#   3. save コマンドで設定を保存
+#   1. RTX830 の管理画面 (http://192.168.1.1) または SSH/Telnet でログイン
+#   2. 以下を上から順に貼り付けて実行
+#   3. 最後に save を実行して保存
 # -----------------------------------------------------------------------
 
 # -----------------------------------------------------------------------
 # システム基本設定
 # -----------------------------------------------------------------------
 console character utf-8
-ip route default gateway pp 1
 ip filter source-route on
 ip filter directed-broadcast on
 
@@ -31,47 +29,47 @@ ip filter directed-broadcast on
 ip lan1 address 192.168.1.1/24
 
 # -----------------------------------------------------------------------
-# PPPoE 設定（アンドライン）
-#   ★ pp auth myname の [USER] と [PASS] を実際の値に書き換えてください
+# LAN2 設定（WAN側 - IPoE IPv6ネイティブ）
+#   DHCPv6-PD でグローバル IPv6 プレフィックスを取得する
 # -----------------------------------------------------------------------
-pp select 1
- description pp andline-pppoe
- pp keepalive interval 30 retry-interval=30 count=12
- pp always-on on
- pppoe use lan2
- pppoe auto disconnect off
- pp auth accept pap chap
- pp auth myname [USER@andline.ne.jp] [PASS]
- ppp lcp mtu on 1454
- ppp ipcp ipaddress on
- ppp ipcp msext on
- ppp ccp type none
- ip pp address dhcp
- ip pp nat descriptor 1
- ipv6 pp dhcp service client ir=off
- ipv6 pp address dhcp-prefix@lan1::
- pp enable 1
+ipv6 lan2 dhcp service client ir=on
 
 # -----------------------------------------------------------------------
-# NAT / IPマスカレード
+# IPv6 LAN1 設定（RA で PC 側へアドレスを配布）
 # -----------------------------------------------------------------------
-nat descriptor type 1 masquerade
-nat descriptor address outer 1 ipcp
-nat descriptor address inner 1 192.168.1.0/24
-
-# -----------------------------------------------------------------------
-# IPv6 LAN1 設定（RA でPC側へプレフィックスを配布）
-# -----------------------------------------------------------------------
-ipv6 prefix 1 dhcp-prefix@lan1::/64
-ipv6 lan1 address dhcp-prefix@lan1::1/64
+ipv6 prefix 1 dhcp-prefix@lan2::/64
+ipv6 lan1 address dhcp-prefix@lan2::1/64
 ipv6 lan1 rtadv send 1 o_flag=on
 ipv6 lan1 dhcp service server
 
-# IPv6 デフォルトルート
-ipv6 route default gateway pp 1
+# IPv6 デフォルトルート（IPoE 経由）
+ipv6 route default gateway dhcp lan2
 
 # -----------------------------------------------------------------------
-# パケットフィルター IPv4（外部からの不正アクセス防止）
+# MAP-E トンネル設定（v6プラス IPv4通信用）
+#   RTX830 が v6プラスのルールを自動適用するため
+#   ユーザーによるパラメーター入力は不要
+# -----------------------------------------------------------------------
+tunnel select 1
+ description tunnel v6plus-map-e
+ tunnel encapsulation map-e
+ tunnel map-e type v6plus
+ ip tunnel nat descriptor 1
+ tunnel enable 1
+
+# IPv4 デフォルトルート（MAP-E トンネル経由）
+ip route default gateway tunnel 1
+
+# -----------------------------------------------------------------------
+# NAT / IPマスカレード（MAP-E 用）
+#   v6プラスではポート番号が自動的に制限される（PSID方式）
+# -----------------------------------------------------------------------
+nat descriptor type 1 masquerade
+nat descriptor address outer 1 tunnel
+nat descriptor address inner 1 192.168.1.0/24
+
+# -----------------------------------------------------------------------
+# パケットフィルター IPv4
 # -----------------------------------------------------------------------
 ip filter 100 reject * * udp,tcp 135 *
 ip filter 101 reject * * udp,tcp * 135
@@ -84,19 +82,19 @@ ip filter 107 reject 192.168.0.0/16 *
 ip filter 108 reject 10.0.0.0/8 *
 ip filter 200 pass * *
 
-ip pp secure filter in 100 101 102 103 104 105 106 107 108 200
-ip pp secure filter out 200
+ip tunnel secure filter in 100 101 102 103 104 105 106 107 108 200
+ip tunnel secure filter out 200
 
 # -----------------------------------------------------------------------
-# パケットフィルター IPv6（外部からの不正アクセス防止）
+# パケットフィルター IPv6
 # -----------------------------------------------------------------------
 ipv6 filter 100 pass * * icmp6 * *
 ipv6 filter 101 pass * * tcp * established
 ipv6 filter 102 pass * * udp * 546
 ipv6 filter 200 reject * *
 
-ipv6 pp secure filter in 100 101 102 200
-ipv6 pp secure filter out 200
+ipv6 lan2 secure filter in 100 101 102 200
+ipv6 lan2 secure filter out 200
 ipv6 lan1 secure filter in 200
 ipv6 lan1 secure filter out 200
 
@@ -109,10 +107,10 @@ dhcp server rfc2131 compliant except remain-silent
 dhcp scope 1 192.168.1.2-192.168.1.191/24
 
 # -----------------------------------------------------------------------
-# DNS（プロバイダーのDNSを自動取得）
+# DNS（IPoE 経由でプロバイダーのDNSを自動取得）
 # -----------------------------------------------------------------------
 dns service recursive
-dns server pp 1
+dns server dhcp lan2
 dns private address spoof on
 
 # -----------------------------------------------------------------------
