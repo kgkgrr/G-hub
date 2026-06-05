@@ -20,8 +20,9 @@
 # 固定IP割り当て設定
 # -----------------------------------------------------------------------
 
-dhcp scope bind 1 192.168.11.18 ethernet b8:27:eb:ba:0b:00
-dhcp scope bind 1 192.168.11.28 ethernet 88:a2:9e:88:00:14
+dhcp scope bind 1 192.168.11.18 ethernet b8:27:eb:ba:0b:00  # DNS MAIN
+dhcp scope bind 1 192.168.11.28 ethernet 88:a2:9e:88:00:14  # HEMS PI4
+dhcp scope bind 1 192.168.11.40 ethernet c4:3c:ea:2b:63:90  # WSR-3200AX4S
 
 # 追加する場合はここに続けて記載:
 # dhcp scope bind 1 192.168.11.xx ethernet xx:xx:xx:xx:xx:xx  # デバイス名

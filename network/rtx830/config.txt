@@ -54,19 +54,47 @@ tunnel select 1
  description tunnel v6plus-map-e
  tunnel encapsulation map-e
  tunnel map-e type v6plus
- ip tunnel nat descriptor 1
+ tunnel map-e option map-version 1
+ ip tunnel mtu 1460
+ ip tunnel tcp-mss-limit auto
+ ip tunnel nat descriptor 1 2 3 4 5
+ ip tunnel map-e prefix-change-restart on
  tunnel enable 1
 
 # IPv4 デフォルトルート（MAP-E トンネル経由）
-ip route default gateway tunnel 1
+# keepalive 1（IPv4）: 3秒間隔・3回失敗（9秒）でダウン判定 → ルート自動無効化・復旧
+# keepalive 2（IPv6）: 同条件で IPv6 疎通を独立監視
+ip keepalive 1 icmp-echo 3 3 8.8.8.8
+ip keepalive 2 icmp-echo 3 3 2001:4860:4860::8888
+ip route default gateway tunnel 1 keepalive 1
 
 # -----------------------------------------------------------------------
 # NAT / IPマスカレード（MAP-E 用）
 #   v6プラスではポート番号が自動的に制限される（PSID方式）
 # -----------------------------------------------------------------------
+
+# descriptor 1: 現用サブネット（192.168.11.0/24）
 nat descriptor type 1 masquerade
 nat descriptor address outer 1 tunnel
 nat descriptor address inner 1 192.168.11.0/24
+
+# descriptor 2〜5: VLAN1〜4 展開時用（将来の拡張向け先行設定）
+# 【要変更：各VLANのサブネットが確定したら inner アドレスを修正すること】
+nat descriptor type 2 masquerade
+nat descriptor address outer 2 tunnel
+nat descriptor address inner 2 192.168.1.0/24
+
+nat descriptor type 3 masquerade
+nat descriptor address outer 3 tunnel
+nat descriptor address inner 3 192.168.2.0/24
+
+nat descriptor type 4 masquerade
+nat descriptor address outer 4 tunnel
+nat descriptor address inner 4 192.168.3.0/24
+
+nat descriptor type 5 masquerade
+nat descriptor address outer 5 tunnel
+nat descriptor address inner 5 192.168.4.0/24
 
 # -----------------------------------------------------------------------
 # パケットフィルター IPv4
@@ -88,13 +116,23 @@ ip tunnel secure filter out 200
 # -----------------------------------------------------------------------
 # パケットフィルター IPv6
 # -----------------------------------------------------------------------
+
+# 静的フィルタ定義
 ipv6 filter 100 pass * * icmp6 * *
 ipv6 filter 101 pass * * tcp * established
 ipv6 filter 102 pass * * udp * 546
+ipv6 filter 103 pass * * 4 * *   # MAP-Eカプセル（IPv4-in-IPv6, proto 4）を通過許可
 ipv6 filter 200 reject * *
 
-ipv6 lan2 secure filter in 100 101 102 200
+# ステートフルフィルタ定義（内側から始めた通信の戻りパケットを自動許可）
+ipv6 filter dynamic 100 * * icmp6
+ipv6 filter dynamic 101 * * tcp
+ipv6 filter dynamic 102 * * udp
+
+# lan2（WAN側）: 静的許可 + ステートフル。不正着信は 200 で遮断
+ipv6 lan2 secure filter in 100 101 102 103 200 dynamic 100 101 102
 ipv6 lan2 secure filter out 200
+# lan1（内側）: 内部から外部への通信は通過
 ipv6 lan1 secure filter in 200
 ipv6 lan1 secure filter out 200
 
@@ -110,6 +148,7 @@ dhcp scope 1 192.168.11.50-192.168.11.191/24
 # MACアドレスによる固定IP割り当て
 dhcp scope bind 1 192.168.11.18 ethernet b8:27:eb:ba:0b:00
 dhcp scope bind 1 192.168.11.28 ethernet 88:a2:9e:88:00:14
+dhcp scope bind 1 192.168.11.40 ethernet c4:3c:ea:2b:63:90
 
 # -----------------------------------------------------------------------
 # DNS（IPoE 経由でプロバイダーのDNSを自動取得）
@@ -123,6 +162,34 @@ dns private address spoof on
 # -----------------------------------------------------------------------
 schedule at 1 startup * ntpdate ntp.nict.jp
 schedule at 2 */* 04:00 * ntpdate ntp.nict.jp
+
+# -----------------------------------------------------------------------
+# IPoE セッション監視
+# -----------------------------------------------------------------------
+# keepalive 動作概要:
+#   keepalive 1（IPv4）: 3秒間隔・3回失敗（9秒）でダウン判定 → デフォルトルート無効化
+#   keepalive 2（IPv6）: 同条件で IPv6 疎通を独立監視
+#   ※ keepalive 定義は MAP-E トンネルセクション内に記載済み
+#
+# IPv6(DHCPv6-PD) 定期更新: 毎日03:30に renew を送信
+schedule at 3 */* 03:30 * dhcp renew client lan2
+#
+# セッション断が長引く場合の強制復旧: 毎日04:30にLAN2を再起動
+# （通常は不要。頻繁に切れる場合のみコメントを外す）
+# schedule at 4 */* 04:30 * lan restart lan2
+
+# -----------------------------------------------------------------------
+# ログ設定（SDカード保存・ローテーション）
+# -----------------------------------------------------------------------
+# notice レベル以上のイベント（トンネル断・keepalive失敗・RA prefix変化等）を記録
+syslog notice on
+syslog debug off
+# SDカードへの保存を有効化（1ファイル最大1MB × 4世代ローテーション）
+# 【要確認：RTX830でSDカードへの出力先が内部フラッシュになる場合は
+#   メーカーマニュアルで `syslog save` の動作を確認すること】
+syslog save on
+syslog save file-size 1024
+syslog save file-count 4
 
 # -----------------------------------------------------------------------
 # 設定保存（必ず最後に実行）
