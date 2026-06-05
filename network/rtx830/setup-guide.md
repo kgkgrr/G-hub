@@ -127,6 +127,34 @@ save
 
 ---
 
+## IPoE セッション監視
+
+### 監視の仕組み
+
+```
+RTX830
+ └─ ip keepalive 1 (10秒ごとに ping)
+       ├─ 8.8.8.8 (Google DNS)
+       └─ 8.8.4.4 (Google DNS)
+
+どちらも5回連続失敗 (約50秒)
+  → デフォルトルート自動無効化
+  → 復旧検知次第、自動再有効化
+
+毎日 03:30 → DHCPv6-PD renew 送信（IPv6セッション維持）
+```
+
+### 監視状態の確認コマンド
+
+```
+show status keepalive 1      # keepalive の現在の状態・統計
+show ipv6 interface lan2     # IPv6アドレス取得状況
+show tunnel 1                # MAP-Eトンネル状態
+show log                     # 接続断・復旧のsyslogを確認
+```
+
+---
+
 ## トラブルシュート
 
 | 症状 | 確認ポイント |

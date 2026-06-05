@@ -58,7 +58,9 @@ tunnel select 1
  tunnel enable 1
 
 # IPv4 デフォルトルート（MAP-E トンネル経由）
-ip route default gateway tunnel 1
+# keepalive 監視と連動: ダウン判定時にルートを自動無効化、復旧時に再有効化
+ip keepalive 1 icmp-echo 10 5 8.8.8.8 8.8.4.4
+ip route default gateway tunnel 1 keepalive 1
 
 # -----------------------------------------------------------------------
 # NAT / IPマスカレード（MAP-E 用）
@@ -124,6 +126,25 @@ dns private address spoof on
 # -----------------------------------------------------------------------
 schedule at 1 startup * ntpdate ntp.nict.jp
 schedule at 2 */* 04:00 * ntpdate ntp.nict.jp
+
+# -----------------------------------------------------------------------
+# IPoE セッション監視
+# -----------------------------------------------------------------------
+# keepalive 動作概要:
+#   - 10秒ごとに 8.8.8.8 / 8.8.4.4 へ ping（どちらかが応答すれば正常）
+#   - 5回連続失敗（約50秒）でダウン判定 → デフォルトルートを無効化
+#   - ping 復旧を確認次第、デフォルトルートを自動再有効化
+#
+# IPv6(DHCPv6-PD) 定期更新: 毎日03:30に renew を送信
+schedule at 3 */* 03:30 * dhcp renew client lan2
+#
+# セッション断が長引く場合の強制復旧: 毎日04:30にLAN2を再起動
+# （通常は不要。頻繁に切れる場合のみコメントを外す）
+# schedule at 4 */* 04:30 * lan restart lan2
+
+# syslog（接続断・復旧イベントを記録）
+syslog notice on
+syslog debug on
 
 # -----------------------------------------------------------------------
 # 設定保存（必ず最後に実行）
