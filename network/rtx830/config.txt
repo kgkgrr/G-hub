@@ -54,11 +54,9 @@ tunnel select 1
  description tunnel v6plus-map-e
  tunnel encapsulation map-e
  tunnel map-e type v6plus
- tunnel map-e option map-version 1
  ip tunnel mtu 1460
- ip tunnel tcp-mss-limit auto
+ ip tunnel tcp-mss-limit 1420
  ip tunnel nat descriptor 1 2 3 4 5
- ip tunnel map-e prefix-change-restart on
  tunnel enable 1
 
 # IPv4 デフォルトルート（MAP-E トンネル経由）
@@ -71,29 +69,25 @@ ip route default gateway tunnel 1 keepalive 1
 # -----------------------------------------------------------------------
 # NAT / IPマスカレード（MAP-E 用）
 #   v6プラスではポート番号が自動的に制限される（PSID方式）
+#   outer アドレスは MAP-E ルールから自動決定されるため指定不要
 # -----------------------------------------------------------------------
 
 # descriptor 1: 現用サブネット（192.168.11.0/24）
 nat descriptor type 1 masquerade
-nat descriptor address outer 1 tunnel
 nat descriptor address inner 1 192.168.11.0/24
 
 # descriptor 2〜5: VLAN1〜4 展開時用（将来の拡張向け先行設定）
 # 【要変更：各VLANのサブネットが確定したら inner アドレスを修正すること】
 nat descriptor type 2 masquerade
-nat descriptor address outer 2 tunnel
 nat descriptor address inner 2 192.168.1.0/24
 
 nat descriptor type 3 masquerade
-nat descriptor address outer 3 tunnel
 nat descriptor address inner 3 192.168.2.0/24
 
 nat descriptor type 4 masquerade
-nat descriptor address outer 4 tunnel
 nat descriptor address inner 4 192.168.3.0/24
 
 nat descriptor type 5 masquerade
-nat descriptor address outer 5 tunnel
 nat descriptor address inner 5 192.168.4.0/24
 
 # -----------------------------------------------------------------------
@@ -119,18 +113,16 @@ ip tunnel secure filter out 200
 
 # 静的フィルタ定義
 ipv6 filter 100 pass * * icmp6 * *
-ipv6 filter 101 pass * * tcp * established
 ipv6 filter 102 pass * * udp * 546
-ipv6 filter 103 pass * * 4 * *   # MAP-Eカプセル（IPv4-in-IPv6, proto 4）を通過許可
+ipv6 filter 103 pass * * 4 * *
 ipv6 filter 200 reject * *
 
 # ステートフルフィルタ定義（内側から始めた通信の戻りパケットを自動許可）
-ipv6 filter dynamic 100 * * icmp6
 ipv6 filter dynamic 101 * * tcp
 ipv6 filter dynamic 102 * * udp
 
 # lan2（WAN側）: 静的許可 + ステートフル。不正着信は 200 で遮断
-ipv6 lan2 secure filter in 100 101 102 103 200 dynamic 100 101 102
+ipv6 lan2 secure filter in 100 102 103 200 dynamic 101 102
 ipv6 lan2 secure filter out 200
 # lan1（内側）: 内部から外部への通信は通過
 ipv6 lan1 secure filter in 200
@@ -138,12 +130,13 @@ ipv6 lan1 secure filter out 200
 
 # -----------------------------------------------------------------------
 # DHCP サーバー
-#   動的配布範囲: 192.168.11.50 〜 192.168.11.191
-#   固定割り当て: 192.168.11.2 〜 192.168.11.49（動的範囲外）
+#   スコープ全体: 192.168.11.2 〜 192.168.11.191
+#   固定割り当て（bind）: .18 / .28 / .40 は MAC で予約済み
+#   動的配布: .50 〜 .191（bindで予約した以外のアドレス）
 # -----------------------------------------------------------------------
 dhcp service server
 dhcp server rfc2131 compliant except remain-silent
-dhcp scope 1 192.168.11.50-192.168.11.191/24
+dhcp scope 1 192.168.11.2-192.168.11.191/24
 
 # MACアドレスによる固定IP割り当て
 dhcp scope bind 1 192.168.11.18 ethernet b8:27:eb:ba:0b:00
@@ -181,7 +174,7 @@ schedule at 3 */* 03:30 * dhcp renew client lan2
 # -----------------------------------------------------------------------
 # ログ設定（SDカード保存・ローテーション）
 # -----------------------------------------------------------------------
-# notice レベル以上のイベント（トンネル断・keepalive失敗・RA prefix変化等）を記録
+# notice レベル以上のイベント（トンネル断・keepalive失敗等）を記録
 syslog notice on
 syslog debug off
 # SDカードへの保存を有効化（1ファイル最大1MB × 4世代ローテーション）
