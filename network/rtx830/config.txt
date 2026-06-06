@@ -37,13 +37,15 @@ ipv6 lan2 dhcp service client ir=on
 # -----------------------------------------------------------------------
 # IPv6 LAN1 設定（RA で PC 側へアドレスを配布）
 # -----------------------------------------------------------------------
-ipv6 prefix 1 dhcp-prefix@lan2::/64
-ipv6 lan1 address dhcp-prefix@lan2::1/64
+# NTT フレッツ光は DHCPv6-PD ではなく SLAAC (RA) でプレフィックスを配布する
+# ra-prefix@lan2 で RA から取得したプレフィックスを参照する
+ipv6 prefix 1 ra-prefix@lan2::/64
+ipv6 lan1 address ra-prefix@lan2::1/64
 ipv6 lan1 rtadv send 1 o_flag=on
 ipv6 lan1 dhcp service server
 
-# IPv6 デフォルトルート（IPoE 経由）
-ipv6 route default gateway dhcp lan2
+# IPv6 デフォルトルートは RA により自動設定される（ipv6 route default 不要）
+# DHCPv6 はデフォルトゲートウェイを配布しないため、手動設定は不可
 
 # -----------------------------------------------------------------------
 # MAP-E トンネル設定（v6プラス IPv4通信用）
