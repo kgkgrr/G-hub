@@ -123,10 +123,12 @@ ipv6 filter dynamic 102 * * udp
 
 # lan2（WAN側）: 静的許可 + ステートフル。不正着信は 200 で遮断
 ipv6 lan2 secure filter in 100 102 103 200 dynamic 101 102
-ipv6 lan2 secure filter out 200
-# lan1（内側）: 内部から外部への通信は通過
-ipv6 lan1 secure filter in 200
-ipv6 lan1 secure filter out 200
+# lan2 送信: 全許可（RSやDHCPv6 Solicitをブロックしないようにする）
+ipv6 filter 201 pass * *
+ipv6 lan2 secure filter out 201
+# lan1（内側）: 内部通信は全許可
+ipv6 lan1 secure filter in 201
+ipv6 lan1 secure filter out 201
 
 # -----------------------------------------------------------------------
 # DHCP サーバー
