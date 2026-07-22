@@ -1,0 +1,114 @@
+# 01. ハードウェア構成
+
+← [インデックスに戻る](../plan.md)
+
+---
+
+## Node0 — メインサーバー
+
+| 項目 | 内容 |
+|---|---|
+| 種別 | 自作PC |
+| CPU | Ryzen 2600 (6c/12t, iGPUなし) |
+| RAM | 48GB (8GB Micron×2 + 16GB Samsung×2、4枚フル実装)。**DDR4-2400で固定運用**(下記参照) |
+| GPU | GTX1650 4GB |
+| マザーボード | ASRock B450M Pro4 |
+| 電源 | Corsair CX450 (450W / 80+ Bronze) |
+| OS | Proxmox VE 9.2.2 (インストール済み) |
+
+### ストレージ
+
+| デバイス | 用途 |
+|---|---|
+| NVMe 256GB (ZFS rpool) | Proxmox OS + VE3(Win11) + VE4(LXC) + VE5(開発Linux) |
+| SATA SSD 256GB | VE1 VMディスク (Frigate + Immichアプリデータ) |
+| 内蔵6TB HDD | パススルー、録画・写真ライブラリ実体データ |
+
+> パススルー方式 (ディスク単位 / コントローラ単位) は IOMMUグループ確認後に決定。
+> 詳細は [`03-proxmox.md`](03-proxmox.md) 参照。
+
+### PCIeスロット割当 (B450M Pro4)
+
+| スロット | 動作 | 現状 / 予定 |
+|---|---|---|
+| PCIE1 | x1 (PCIe 2.0) | 2.5G NIC **装着済み** |
+| PCIE2 | x16 (CPU直結) | GTX1650 |
+| PCIE3 | x16形状 / x4動作 | RTX 3060 12GB 増設候補 |
+
+### メモリ動作周波数 — DDR4-2400で確定 (2026-07-21)
+
+**4枚フル実装 (48GB) では DDR4-2933 が不安定。DDR4-2400 (CAS 17-17-17-39) に降格して安定化。**
+
+構成の内訳:
+
+| 物理スロット | memtest表示 | 容量 | メーカー | 製造 |
+|---|---|---|---|---|
+| A1 | Slot 0 | 8GB | Micron 8ATF1G64AZ-3G2J1 | 2019-W25 |
+| A2 | Slot 1 | 8GB | Micron 8ATF1G64AZ-3G2J1 | 2019-W25 |
+| B1 | Slot 2 | 16GB | Samsung M378A2G43AB3-CWE | 2021-W25 |
+| B2 | Slot 3 | 16GB | Samsung M378A2G43AB3-CWE | 2021-W24 |
+
+※CPUに近い側から A1, A2, B1, B2 の並び。
+
+**検証の経緯 (memtest86+ v7.20 で切り分け)**
+
+1. 4枚フル・DDR4-2933: Test #8 (Random number sequence)、アドレス0-4MB、経過0:37台で**再現性を持ってFAIL** (2回とも同一パターン、Errors:1)
+2. Samsung 16GB×2のみ (B1/B2): 1周 Pass、Errors:0
+3. Micron 8GB×2を B1/B2 に移設: 2周 Pass、Errors:0 → **スティック個体・推奨スロットは健全**
+4. Micron 8GB×2を A1/B1 に配置: Errors:13、全域に分散 → A1/B1系で異常
+5. Micron 8GB 1枚を A1単体: 7周でErrors:11まで累積増加 → 再現性のある異常
+6. **4枚フルに戻し DDR4-2400へ降格**: **約11時間・4周完走、Errors:0** → 安定を確認
+
+**確定運用**: BIOS (OC Tweaker → DRAM Frequency) で **DDR4-2400 固定**。DRAM Voltage・Timingは Auto。DOCP/XMP項目はこのBIOSには存在せず (Overclock Mode=Auto のまま)。用途 (Frigate/Immich/TrueNAS/CPU推論) はメモリ帯域よりも安定性が優先されるため、帯域低下の実用上の影響はない。
+
+### 電力見積もり
+
+GPU2枚構成でも250〜300W程度に収まる見込み。CX450 (450W) で許容範囲。
+※アクティブPFC電源のため、UPS導入時は**正弦波出力必須**。
+
+---
+
+## Node2 — PBSノード
+
+| 項目 | 内容 |
+|---|---|
+| 種別 | Dynabook R741 |
+| CPU | Core i5 2450M |
+| RAM | 8GB |
+| GPU | なし |
+| ストレージ | 6TB USB3.0 外付けHDD |
+| OS | Proxmox Backup Server (Tier3バックアップ) |
+| 予定 | USB3.0接続の2.5G NIC追加 |
+
+**Node0↔Node2 の2.5G NIC直結**を計画中 (スイッチを経由せずバックアップトラフィックを分離)。
+
+---
+
+## コンソール機
+
+MacBook Air。
+
+---
+
+## Windowsライセンス
+
+Windows 11 Home リテール、デジタルライセンス (Microsoftアカウント `kgkgrr@gmail.com` に紐付け済み)。
+VM移行時に自動認証される見込み。明示的な認証解除は不要。
+
+---
+
+## UPS — 検討中
+
+> **実運用での裏付け (2026-07-20)**: 構築作業中に約5秒の停電が実際に発生し、Node0が突然電源断。ZFS (rpool) は無傷で自動復旧したが、VM本格稼働後は同種の事象がゲストOSのファイルシステム破損に繋がりうる。UPS導入 (NUT連携含む) の優先度を実運用で再確認した。
+
+### 候補
+- **Omron BY120S** (1200VA / 720W) — 中古市場 (ヤフオク) での有力候補
+
+### 調査で判明した重要事項
+
+- **長期保管されたシールド鉛蓄電池 (SLA) はサルフェーションにより不可逆的に劣化する。** 出品説明が「未使用」であっても、実際のバックアップ稼働時間はほぼゼロの可能性がある。バッテリー交換前提で価格を判断すること
+- **DIY交換には汎用の12V スタンバイ用SLAバッテリー**を使う (例: Panasonic LC-R127R2、Yuasa NP7-12)。直列接続。**バイク用バッテリーは不可** (用途・特性が異なる)
+- **正弦波出力が必須** — Node0/Node2ともアクティブPFC電源のため、矩形波/擬似正弦波では動作不良やUPS側の保護動作を招く
+
+### 導入時に必要な作業
+- **NUT (Network UPS Tools)** をProxmoxに導入し、停電検知からのグレースフルシャットダウンを構成する
