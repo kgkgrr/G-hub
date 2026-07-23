@@ -5,24 +5,47 @@
 - **稼働中**:
   - Node0: Proxmox VE 9.2.2 (NVMe単体 ZFS rpool、**管理IP `192.168.20.150/24` VLAN20**、`node0.Ghome.local`)
   - ネットワーク: RTX830 + SWX2110P-8G 投入済み、WLX222 VAP1/VAP4 接続確認済み
-  - **vmbr0 = VLANアウェアブリッジ化完了 (2026-07-23)**。ホスト管理をVLAN20へ移設・検証済み
-  - vfio-pci バインド: `02:00.0`(USB3.1) / `02:00.1`(SATA `43c8` 全4ポート) → グループ14をVE2へ渡す準備完了・reboot後確認済み
-- **確定した設計 (2026-07-23, 案4)**:
-  - SATAは単一4ポートコントローラで分割不可 → `43c8` 全ポートをVE2(TrueNAS)へ。**6TB=データプール / SATA SSD=SSDプール**、**VMディスクは全てNVMe(rpool)集約**。vfio現設定のまま。HBA(案1)/ディスク単位PT(案2)/ホストZFS(案3)は却下 (詳細 03-proxmox.md)
-  - NVMe 256GBは当面据置 (相場高騰中)。シンプロビジョニングで薄く運用、逼迫かつ相場緩和でM2_1を1TB換装
+  - **vmbr0 = VLANアウェアブリッジ化完了 (2026-07-23)**。ホスト管理をVLAN20へ移設・検証済み。DNS=`.20.254`確認済み
+- **設計の重大変更 (2026-07-23夜, 案4→案2)**:
+  - **案4(コントローラ単位PT)は実機で不可能と判明・撤回**。IOMMUグループ14は「USB+SATA」ではなく**チップセットPCIeスイッチ+配下全デバイス(両NIC含む)**。VE2へ渡した瞬間、管理NIC(`05:00.0`)ごとリセットされ**ホストがハング**(事故発生)。詳細 `docs/iommu-groups.md`
+  - **案2(ディスク単位パススルー)へ移行**: vfio解除→ホストが6TB/SSD直認識→`qm set 200 -scsiX /dev/disk/by-id/...` でVE2へ。TrueNAS GUIは維持。NVMe集約・256GB据置方針は不変
 - **中途半端な状態**:
-  - VE2 (TrueNAS SCALE) 未構築。ISO (25.10.4) は `local` に取得・照合済み
-  - VLAN20/25 の観察・一時許可が継続中 (VLAN20→10 は pass-log、VLAN25 の80/NTPは一時許可)
+  - 事故復旧中: `hostpci0`削除済み。vfio.conf退避→initramfs更新→**reboot待ち** (NIC復旧＋ディスク可視化)
+  - VE2(200)はシェルのみ作成済み・未インストール。ISO(25.10.4, 2.1GB)は`local`に正常取得済み
+  - VLAN20/25 の観察・一時許可が継続中
 - **次の一手 (最大3件)**:
-  1. VE2 (TrueNAS SCALE, VMID=200) 構築 → q35/OVMF, boot 32GB(NVMe), RAM 8GB, `hostpci0: 0000:02:00,pcie=1`, net0 `tag=20` → 6TB/SSD認識確認 → disks.mdへ実シリアル反映
-  2. VE1構築 (Frigate+Immich, GTX1650) → TrueNAS NFS連携
-  3. ホストDNSを `192.168.20.254` に向いているか確認 (要 cat /etc/resolv.conf)
+  1. reboot後: `lspci -s 02:00.1`=ahci確認 / `lsblk`で6TB・SSD可視化 → disks.md実シリアル反映
+  2. VE2(200)へ6TBをディスク単位PT (`qm set 200 -scsi1 /dev/disk/by-id/ata-...`) → TrueNASインストール
+  3. VE1構築 (Frigate+Immich, GTX1650) → TrueNAS NFS連携
 - **注意中の問題 (最大3件)**:
   1. **UPS未導入** — 本番投入前に必須 (7/20 実停電あり、正弦波必須)
   2. **PBSクォーラム** — 2ノードでQDevice未手当て
-  3. **DNS向き先** — `.20.254`(RTX VLAN20側)であること。`.10.1`向けだと将来 `10212`→reject でDNS断
+  3. **案4事故の教訓** — このボードはIOMMUグループが粗く、SATA/NIC分離不可。PCIパススルーは慎重に (GPUのグループ15は要再確認)
 
 ---
+
+## 2026-07-23 (3) 【事故】案4パススルーでホストハング → 案2へ移行
+
+### やったこと
+- VE2(200)作成 (q35/OVMF/SecureBoot無効/host CPU/8GB/32GBブート/net tag20) → `hostpci0: 0000:02:00,pcie=1` 追加 → `qm start 200` で**ホストが完全ハング**(SSH/ping全断)
+- 物理コンソールで復旧。`journalctl -b -1` で原因特定 → `hostpci0`削除、vfio.conf退避してreboot準備
+
+### 原因 (確定)
+- **IOMMUグループ14の実態がplan記録と違った**。記録は「USB(02:00.0)+SATA(02:00.1)」だけだったが、実際は**チップセットPCIeスイッチ(02:00.2)+配下の両NIC(04:00.0=2.5G, 05:00.0=オンボード1G=管理NIC)**を含む8デバイス
+- グループごとVE2へ渡してリセット → 管理NIC(05:00.0)ごと落ちてホスト死。詳細 `docs/iommu-groups.md`
+
+### 決めたこと
+- **案4(コントローラ単位PT)を撤回**。B450M Pro4ではグループが粗すぎてSATAとNICを分離不可
+- **案2(ディスク単位パススルー)を採用**。vfioを外しホストが直接ディスクを持ち、`qm set -scsi /dev/disk/by-id/` でVE2へ。TrueNAS GUI維持・GPUのPCIE3温存
+- 却下: ACSオーバーライドでグループ細分化 → 分離保証を捨てる上NICを巻き込む構造でリスク過大 / HBA(案1) → PCIE3も同スイッチ配下の懸念+出費
+
+### 未解決・次回やること
+- reboot→NIC復旧＆ディスク可視化確認→disks.md確定→VE2へ6TBディスクPT→TrueNASインストール
+- GPU(グループ15と推定)がVE1に単独パススルー可能か、VE1着手前に実機再確認 (同じ轍を踏まない)
+
+### 実機の状態
+- Node0: 事故から復旧作業中。hostpci0削除済み、vfio.conf退避済み、reboot待ち
+- VE2(200): シェル作成のみ・未インストール
 
 ## 2026-07-23 (2) VLANアウェア化・ホストVLAN20移設
 
