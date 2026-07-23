@@ -1,0 +1,21 @@
+# Node0 /etc/network/interfaces — VLANアウェア化 "前" の既知正常状態
+# 取得: 2026-07-23 (cat /etc/network/interfaces の実機出力)
+# 用途: VLANアウェアブリッジ化のロールバック基準
+
+auto lo
+iface lo inet loopback
+
+iface nic1 inet manual
+
+auto vmbr0
+iface vmbr0 inet static
+        address 192.168.10.150/24
+        gateway 192.168.10.1
+        bridge-ports nic1
+        bridge-stp off
+        bridge-fd 0
+
+iface nic0 inet manual
+
+
+source /etc/network/interfaces.d/*
