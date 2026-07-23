@@ -5,20 +5,43 @@
 - **稼働中**:
   - Node0: Proxmox VE 9.2.2 (NVMe単体 ZFS rpool、管理IP `192.168.10.150/24`、`node0.ghome.local`)
   - ネットワーク: RTX830 + SWX2110P-8G 投入済み、WLX222 VAP1/VAP4 接続確認済み
-  - vfio-pci バインド: `02:00.0`(USB3.1) / `02:00.1`(SATA 6TB側) → グループ14をVE2へ渡す準備完了・reboot後確認済み
+  - vfio-pci バインド: `02:00.0`(USB3.1) / `02:00.1`(SATA `43c8` 全4ポート) → グループ14をVE2へ渡す準備完了・reboot後確認済み
+- **確定した設計 (2026-07-23, 案4)**:
+  - SATAは単一4ポートコントローラで分割不可 → `43c8` 全ポートをVE2(TrueNAS)へ。**6TB=データプール / SATA SSD=SSDプール**、**VMディスクは全てNVMe(rpool)集約**。vfio現設定のまま。HBA(案1)/ディスク単位PT(案2)/ホストZFS(案3)は却下 (詳細 03-proxmox.md)
+  - NVMe 256GBは当面据置 (相場高騰中)。シンプロビジョニングで薄く運用、逼迫かつ相場緩和でM2_1を1TB換装
 - **中途半端な状態**:
   - VE2 (TrueNAS SCALE) 未構築。ISO (25.10.4) は `local` に取得・照合済み
   - VLAN20/25 の観察・一時許可が継続中 (VLAN20→10 は pass-log、VLAN25 の80/NTPは一時許可)
 - **次の一手 (最大3件)**:
-  1. `docs/disks.md` 作成 (全ディスクのシリアル/役割表 — VM作成前に確定)
-  2. VE2 (TrueNAS SCALE) 構築 → 6TB HDD認識確認
-  3. VLANアウェアブリッジ (vmbr) 設定
+  1. VE2 (TrueNAS SCALE) 構築 → グループ14をPCI追加 → 6TB/SSD認識確認 → disks.mdへ実シリアル反映
+  2. VLANアウェアブリッジ (vmbr) 設定
+  3. VE1構築 (Frigate+Immich, GTX1650) → TrueNAS NFS連携
 - **注意中の問題 (最大3件)**:
   1. **UPS未導入** — 本番投入前に必須 (7/20 実停電あり、正弦波必須)
   2. **PBSクォーラム** — 2ノードでQDevice未手当て
   3. **記録と実機の乖離(要確認)** — リポジトリの `network/rtx830/` は `192.168.11.0/24`・AP=WSR-3200AX4S・IPoE MAP-E だが、`plan/02-network.md` は `192.168.10.0/24`・AP=WLX222。どちらが現行か未確認
 
 ---
+
+## 2026-07-23
+
+### やったこと
+- ストレージ配置を実機事実に基づき再設計し、**案4に確定**。`plan/03-proxmox.md`・`01-hardware.md` を改訂、`docs/disks.md` を新規作成
+- 発見: ホストからNVMeしか見えない → 6TB側SATA `43c8` をvfioに渡しており、**同じ`43c8`配下のSATA SSDも一緒に不可視**。当初「SSDはFCH `09:00.2`側でホスト温存」の前提が誤り (B450M Pro4はSATA単一4ポート、`7901`に物理コネクタ無し)
+
+### 決めたこと (案4)
+- **`43c8` 全4ポートを丸ごとVE2(TrueNAS)へパススルー** (現vfio設定のまま)。6TB=データプール、SATA SSD=SSDプール、**VMディスクは全てNVMe(rpool)集約**
+- 却下: 案1 HBA (PCIE3占有→RTX3060締め出し+出費)、案2 ディスク単位PT (TrueNAS公式非推奨)、案3 ホストZFS+Cockpit (TrueNAS GUIを捨てる)
+- NVMe容量: 相場高騰中につき**買わない**。シンプロビジョニングで256GB薄運用、実効70-75%超+相場緩和でM2_1を1TB換装 (M2_2はSATA専用で増設不可、換装が唯一の拡張路)
+
+### 未解決・次回やること
+- VE2(TrueNAS)構築 → PCIデバイスとしてグループ14追加 → 6TB/SSD認識 → disks.mdへ実シリアル反映
+- TrueNAS boot diskはNVMe上に小容量 (16GB程度) で作成
+
+### 実機の状態
+- 稼働中: Node0 (Proxmox VE 9.2.2)、ネットワーク一式
+- 未構築: VE1〜VE6 すべて。vfioバインド済みだがパススルー先VE2未作成
+- 不可視: 6TB HDD・SATA SSD (共に`43c8`配下=vfio) → TrueNAS内で確認予定
 
 ## 2026-07-22
 

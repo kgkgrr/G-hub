@@ -20,12 +20,12 @@
 
 | デバイス | 用途 |
 |---|---|
-| NVMe 256GB (ZFS rpool) | Proxmox OS + VE3(Win11) + VE4(LXC) + VE5(開発Linux) |
-| SATA SSD 256GB | VE1 VMディスク (Frigate + Immichアプリデータ) |
-| 内蔵6TB HDD | パススルー、録画・写真ライブラリ実体データ |
+| NVMe 256GB (ZFS rpool) | Proxmox OS + **全VM/LXCのブート・アプリディスク (VE1〜VE6)**。当面256GBで薄く運用、逼迫かつ相場緩和時にM2_1を1TB級へ換装 |
+| SATA SSD 256GB | **VE2 (TrueNAS) 配下のSSDプール** (アプリ/高速データ用)。※当初はVE1 VMディスク想定→案4で改訂 |
+| 内蔵6TB HDD | VE2 (TrueNAS) へコントローラ単位パススルー、録画・写真ライブラリ実体データ |
 
-> パススルー方式 (ディスク単位 / コントローラ単位) は IOMMUグループ確認後に決定。
-> 詳細は [`03-proxmox.md`](03-proxmox.md) 参照。
+> **ストレージ配置は 2026-07-23 に改訂 (案4)**。SATAは単一コントローラ4ポートで分割不可のため、`43c8` 全ポートをTrueNASへ渡し、VMディスクはNVMeに集約。
+> 詳細な経緯・却下案は [`03-proxmox.md`](03-proxmox.md) の「ストレージ配置の改訂」参照。
 
 ### PCIeスロット割当 (B450M Pro4)
 
