@@ -110,6 +110,18 @@ vfio_pci
 - **この設定を壊すと管理アクセスが全滅する。** 変更は物理コンソールを確保できるタイミングでのみ実施 (CLAUDE.md レベルC)
 - IPは静的設定 (方式①)。詳細は [`02-network.md`](02-network.md)
 
+### 完了 (2026-07-23)
+
+VLANアウェア化＋ホスト管理のVLAN20移設を実施・検証済み。物理コンソール確保のうえ、VLAN10退避路を残す2段階移行で無停止に近い形で完了。
+
+- `vmbr0` = VLANアウェアブリッジ (`bridge-vlan-aware yes` / `bridge-vids 2-4094`、ポート `nic1`)
+- ホスト管理IF = `vmbr0.20` = **`192.168.20.150/24`、GW `192.168.20.254`** (旧 `192.168.10.150` から移設)
+- `/etc/hosts` も `.20.150` へ更新済み。MacBook(VLAN10)→GUI `https://192.168.20.150:8006` 到達確認 (RTX `10110 pass` + 戻り `10212`/dynamic)
+- 実機の権威RTX config (2026-07-23) は `192.168.10.x`・VLAN20=`.254` で plan/02-network と一致。リポジトリ旧 `network/rtx830`(192.168.11) が古いことが確定 (乖離issueクローズ)
+- 現行 interfaces は `configs/network/interfaces.node0` に保存
+- VMをVLANに載せる時は net デバイスに `tag=<vid>` を付ける (例: TrueNAS(VE2)=`tag=20`)
+- 注意: ホストDNSは `192.168.20.254` (RTXのVLAN20側) を向けること。`.10.1` 向けだと将来 `10212`→reject 時にDNS断
+
 ---
 
 ## バックアップ設計

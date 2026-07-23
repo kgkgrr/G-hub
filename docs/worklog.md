@@ -3,8 +3,9 @@
 ## 現在の状態 (毎セッション末尾に上書き更新 / 20行以内)
 
 - **稼働中**:
-  - Node0: Proxmox VE 9.2.2 (NVMe単体 ZFS rpool、管理IP `192.168.10.150/24`、`node0.ghome.local`)
+  - Node0: Proxmox VE 9.2.2 (NVMe単体 ZFS rpool、**管理IP `192.168.20.150/24` VLAN20**、`node0.Ghome.local`)
   - ネットワーク: RTX830 + SWX2110P-8G 投入済み、WLX222 VAP1/VAP4 接続確認済み
+  - **vmbr0 = VLANアウェアブリッジ化完了 (2026-07-23)**。ホスト管理をVLAN20へ移設・検証済み
   - vfio-pci バインド: `02:00.0`(USB3.1) / `02:00.1`(SATA `43c8` 全4ポート) → グループ14をVE2へ渡す準備完了・reboot後確認済み
 - **確定した設計 (2026-07-23, 案4)**:
   - SATAは単一4ポートコントローラで分割不可 → `43c8` 全ポートをVE2(TrueNAS)へ。**6TB=データプール / SATA SSD=SSDプール**、**VMディスクは全てNVMe(rpool)集約**。vfio現設定のまま。HBA(案1)/ディスク単位PT(案2)/ホストZFS(案3)は却下 (詳細 03-proxmox.md)
@@ -13,17 +14,37 @@
   - VE2 (TrueNAS SCALE) 未構築。ISO (25.10.4) は `local` に取得・照合済み
   - VLAN20/25 の観察・一時許可が継続中 (VLAN20→10 は pass-log、VLAN25 の80/NTPは一時許可)
 - **次の一手 (最大3件)**:
-  1. VE2 (TrueNAS SCALE) 構築 → グループ14をPCI追加 → 6TB/SSD認識確認 → disks.mdへ実シリアル反映
-  2. VLANアウェアブリッジ (vmbr) 設定
-  3. VE1構築 (Frigate+Immich, GTX1650) → TrueNAS NFS連携
+  1. VE2 (TrueNAS SCALE, VMID=200) 構築 → q35/OVMF, boot 32GB(NVMe), RAM 8GB, `hostpci0: 0000:02:00,pcie=1`, net0 `tag=20` → 6TB/SSD認識確認 → disks.mdへ実シリアル反映
+  2. VE1構築 (Frigate+Immich, GTX1650) → TrueNAS NFS連携
+  3. ホストDNSを `192.168.20.254` に向いているか確認 (要 cat /etc/resolv.conf)
 - **注意中の問題 (最大3件)**:
   1. **UPS未導入** — 本番投入前に必須 (7/20 実停電あり、正弦波必須)
   2. **PBSクォーラム** — 2ノードでQDevice未手当て
-  3. **記録と実機の乖離(要確認)** — リポジトリの `network/rtx830/` は `192.168.11.0/24`・AP=WSR-3200AX4S・IPoE MAP-E だが、`plan/02-network.md` は `192.168.10.0/24`・AP=WLX222。どちらが現行か未確認
+  3. **DNS向き先** — `.20.254`(RTX VLAN20側)であること。`.10.1`向けだと将来 `10212`→reject でDNS断
 
 ---
 
-## 2026-07-23
+## 2026-07-23 (2) VLANアウェア化・ホストVLAN20移設
+
+### やったこと
+- **vmbr0をVLANアウェアブリッジ化し、ホスト管理IFをVLAN10(`192.168.10.150`)→VLAN20(`192.168.20.150`)へ移設** (レベルC)。物理コンソール確保のうえ、VLAN10退避路を残す2段階移行で実施→検証完了
+- 検証: `vmbr0.20`=192.168.20.150/24, default via .254, `.254`/github.com ping 0% loss, MacBook(VLAN10)→GUI `https://192.168.20.150:8006` 到達, `/etc/hosts` も.20.150へ
+- RTX830権威config(2026-07-23)を確認 → `192.168.10.x`・VLAN20 `.254`・`10110 pass` を実機で確認。**ネットワーク乖離issueクローズ** (リポジトリ `network/rtx830` の.11が旧)
+- `configs/network/interfaces.node0` を新構成に更新。plan/03-proxmox に完了記録
+
+### 決めたこと
+- 案B (ホストもVLAN20へ) を採用。理由: サーバ類をVLAN20で明確に分離する構想
+- 移行は2段階 (dual-home→検証→VLAN10除去)。却下: 一発移設は未実証のVLAN20へ飛ぶ博打のため
+
+### 未解決・次回やること
+- `/etc/resolv.conf` のDNSが `.20.254` を向いているか確認 (`.10.1`向けは将来断のリスク)
+- VE2 (TrueNAS 200) 構築
+
+### 実機の状態
+- Node0管理: VLAN20 `192.168.20.150`。vmbr0=VLANアウェア稼働中
+- 未構築: VE1〜VE6
+
+## 2026-07-23 ストレージ方式(案4)確定
 
 ### やったこと
 - ストレージ配置を実機事実に基づき再設計し、**案4に確定**。`plan/03-proxmox.md`・`01-hardware.md` を改訂、`docs/disks.md` を新規作成
