@@ -15,13 +15,33 @@
   - SSD(`sda`,240GB)はホスト側で未使用(要wipe→ストレージ化、VE1用)
   - VLAN20/25 の観察・一時許可が継続中
 - **次の一手 (最大3件)**:
-  1. TrueNAS GUI (`https://192.168.20.151`) で6TBプール作成(単騎stripe、冗長はPBS委任)
-  2. SSD(240GB)をホストのProxmoxストレージ化 → VE1用
-  3. VE1構築 (Frigate+Immich, GTX1650) → TrueNAS NFS連携
+  1. TrueNAS GUI (`https://192.168.20.151`) で6TBプール作成(単騎stripe、冗長はPBS委任) → `pool/immich`,`pool/frigate`,`pool/docs` データセット作成(設計は `plan/03-proxmox.md` 参照)
+  2. SSD(240GB)をホストで**LVM-thin化** → VE1にPostgres専用ディスクとしてアタッチ
+  3. VE1構築 (Frigate+Immich, GTX1650) → NFS(写真/録画)・SSD(DB)接続
 - **注意中の問題 (最大3件)**:
   1. **UPS未導入** — 本番投入前に必須 (7/20 実停電あり、正弦波必須)
   2. **PBSクォーラム** — 2ノードでQDevice未手当て
   3. **案4事故の教訓** — このボードはIOMMUグループが粗く、SATA/NIC分離不可。PCIパススルーは慎重に (GPUのグループ15は要再確認)
+
+---
+
+## 2026-07-24 (2) データセット設計・Immich共有方針・Postgres配置を決定
+
+### やったこと
+- 6TBプール上のデータセット構成を設計 (`pool/immich` / `pool/frigate` / `pool/docs`)。用途ごとの recordsize・compression・snapshot方針を整理し `plan/03-proxmox.md` に記録
+
+### 決めたこと
+- **家族間の写真共有はデータセット分割ではなくImmichのアプリ機能で実現**。共有アルバム(子供の写真・家族写真)とPartner機能(夫婦間の全体共有)を使う。データセットをユーザー単位で切るのは非効率と判断し却下
+- **`pool/docs` は当面夫婦共有の単一データセット**。子供が端末を持つ時期に `pool/docs/<name>` を子データセットとして追加する拡張方針とし、今から先回りして分割しない
+- **Postgres(Immichメタデータ)はSanDisk SSD(240GB, LVM-thin化)に配置**。却下: NVMe配置(容量圧迫)、NFS(6TBプール)配置(Postgresの信頼性・ロック問題で非推奨)。VE1のOS/ブートはNVMe、写真動画本体はTrueNAS NFS、DBのみSSDという3層構成に確定
+
+### 未解決・次回やること
+1. TrueNAS GUIで6TBプール作成 → 上記3データセット作成 → NFS/SMBエクスポート設定
+2. ProxmoxホストでSSD(`154778407406`)をLVM-thin化 → VE1へ追加ディスクとしてアタッチ(実行前にシリアルで6TBとの取り違え防止を再確認)
+3. VE1構築自体は未着手。Immich docker-composeの `UPLOAD_LOCATION`(NFS)/`DB_DATA_LOCATION`(SSD)設定はVE1構築時に反映
+
+### 実機の状態
+- 変更なし(設計のみ、実機操作は未実施)。稼働中: Node0(Proxmox, VLAN20 `.150`)、VE2(TrueNAS `.151`, プール未作成)。ホスト保持・未使用: SSD 240GB(`sda`)
 
 ---
 
