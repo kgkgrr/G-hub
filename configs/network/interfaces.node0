@@ -1,0 +1,24 @@
+# Node0 /etc/network/interfaces — VLANアウェア化 "後" (2026-07-23適用・検証済み)
+# host管理: VLAN20 (192.168.20.150/24, GW 192.168.20.254)。VLAN10からは 10110 pass で到達
+# vmbr0: VLANアウェアブリッジ。VMは net の tag= でVLAN指定 (例: TrueNAS=tag20)
+
+auto lo
+iface lo inet loopback
+
+iface nic0 inet manual
+iface nic1 inet manual
+
+auto vmbr0
+iface vmbr0 inet manual
+        bridge-ports nic1
+        bridge-stp off
+        bridge-fd 0
+        bridge-vlan-aware yes
+        bridge-vids 2-4094
+
+auto vmbr0.20
+iface vmbr0.20 inet static
+        address 192.168.20.150/24
+        gateway 192.168.20.254
+
+source /etc/network/interfaces.d/*
