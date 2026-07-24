@@ -9,13 +9,14 @@
 - **設計の重大変更 (2026-07-23夜, 案4→案2)**:
   - **案4(コントローラ単位PT)は実機で不可能と判明・撤回**。IOMMUグループ14は「USB+SATA」ではなく**チップセットPCIeスイッチ+配下全デバイス(両NIC含む)**。VE2へ渡した瞬間、管理NIC(`05:00.0`)ごとリセットされ**ホストがハング**(事故発生)。詳細 `docs/iommu-groups.md`
   - **案2(ディスク単位パススルー)へ移行**: vfio解除→ホストが6TB/SSD直認識→`qm set 200 -scsiX /dev/disk/by-id/...` でVE2へ。TrueNAS GUIは維持。NVMe集約・256GB据置方針は不変
+- **VE2 (TrueNAS SCALE 25.10.4)**: **インストール完了・ネットワーク疎通OK**。管理 `192.168.20.151` (VLAN20)、hostname `Gnas`、admin=`truenas_admin`。6TBを`scsi1`でディスクPT済み(VE2内では`sda`5.46TiB)。VGA=qxl(std/OVMFで砂嵐→qxlで解決)、serial0あり
 - **中途半端な状態**:
-  - 事故復旧中: `hostpci0`削除済み。vfio.conf退避→initramfs更新→**reboot待ち** (NIC復旧＋ディスク可視化)
-  - VE2(200)はシェルのみ作成済み・未インストール。ISO(25.10.4, 2.1GB)は`local`に正常取得済み
+  - VE2: **プール未作成**(6TBでこれから)。共有(NFS)未設定
+  - SSD(`sda`,240GB)はホスト側で未使用(要wipe→ストレージ化、VE1用)
   - VLAN20/25 の観察・一時許可が継続中
 - **次の一手 (最大3件)**:
-  1. reboot後: `lspci -s 02:00.1`=ahci確認 / `lsblk`で6TB・SSD可視化 → disks.md実シリアル反映
-  2. VE2(200)へ6TBをディスク単位PT (`qm set 200 -scsi1 /dev/disk/by-id/ata-...`) → TrueNASインストール
+  1. TrueNAS GUI (`https://192.168.20.151`) で6TBプール作成(単騎stripe、冗長はPBS委任)
+  2. SSD(240GB)をホストのProxmoxストレージ化 → VE1用
   3. VE1構築 (Frigate+Immich, GTX1650) → TrueNAS NFS連携
 - **注意中の問題 (最大3件)**:
   1. **UPS未導入** — 本番投入前に必須 (7/20 実停電あり、正弦波必須)
@@ -23,6 +24,34 @@
   3. **案4事故の教訓** — このボードはIOMMUグループが粗く、SATA/NIC分離不可。PCIパススルーは慎重に (GPUのグループ15は要再確認)
 
 ---
+
+## 2026-07-24 VE2(TrueNAS) 案2で構築完了・ネットワークまで疎通
+
+### やったこと
+- vfio.conf退避→initramfs更新→reboot でホスト復旧。`02:00.1`=ahci、6TB(`sdb`)/SSD(`sda`)がホスト可視化。**全ディスク実シリアル確定→disks.md更新**
+- 6TBをVE2へディスクPT: `qm set 200 -scsi1 /dev/disk/by-id/ata-WDC_WD60EFPX-68C5ZN0_WD-WX42D369CEFE,backup=0`
+- VE2起動→**TrueNAS SCALE 25.10.4 インストール成功**。認証=Administrative user `truenas_admin`(パスワード設定済み・ユーザー管理)
+- TrueNASコンソールで静的IP設定: interface `enp6s18` の aliases に `192.168.20.151/24`、GW/DNS `192.168.20.254`、hostname `Gnas`
+- **GUIログイン確認済み** (`https://192.168.20.151`, truenas_admin)
+
+### つまづきと解決 (次回のため)
+- **OVMF+std VGAでインストーラが砂嵐** → `qm set 200 -vga qxl` で解決 (cirrus/nomodeset/シリアルも代替として有効)。serial0も追加済み
+- **シリアルコンソールでスペースキーが効かず**ディスク選択できない → VGA(qxl)に切替で解決
+- **「ホストにMacからping不可」で焦ったが原因はMacのWiFiがIoT SSID(VLAN30)を自動接続**していただけ。VLAN30→VLAN20はFW遮断。ホストは終始正常。→ **切り分け時はまずクライアント側のVLANを疑う**
+- **TrueNASのゲートウェイ設定でunreachableエラー** → interfaceのIP(alias)を先に適用してからGWを入れる順序。IPはaliasesに`x.x.x.x/24`形式で入れる
+
+### 決めたこと
+- SSD(240GB)は案2の副産物として**ホスト側ストレージに回す**(TrueNASには渡さない)。NVMe逼迫の受け皿+VE1ディスク。フォーマット許可済み
+
+### 次回やること (別チャットへ引き継ぎ)
+1. **TrueNAS GUIで6TBプール作成**: `https://192.168.20.151` → Storage → Create Pool。**対象はVE2内で`sda`=5.46TiBの方**(32GB=`sdb`はブート、選ばない)。単騎=stripe警告は承知の上でOK(冗長はPBS)。プール名は要決定
+2. データセット設計 (Immich写真用/LLM書類用等) → NFS共有設定 → VE1から利用
+3. SSD(`sda`,240GB,`154778407406`)をホストでwipe→ZFS/LVM化 (破壊操作: 6TB`sdb`と取り違え厳禁)
+
+### 実機の状態
+- 稼働中: Node0(Proxmox, VLAN20 `.150`)、VE2(TrueNAS `.151`, プール未作成)
+- ホスト保持・未使用: SSD 240GB(`sda`)
+- 未構築: VE1,VE3〜VE6
 
 ## 2026-07-23 (3) 【事故】案4パススルーでホストハング → 案2へ移行
 
