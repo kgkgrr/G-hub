@@ -11,7 +11,7 @@
 | VM | 内容 | 状態 |
 |---|---|---|
 | VE1 | Frigate + Immich、GTX1650 GPUパススルー | 未着手 |
-| VE2 | **TrueNAS SCALE VM** (VMID=200)。6TB HDDを**ディスク単位パススルー**(案4撤回→案2)。インストール・NW疎通・GUIログイン完了、**プール未作成** | 構築中(プール待ち) |
+| VE2 | **TrueNAS SCALE VM** (VMID=200)。6TB HDDを**ディスク単位パススルー**(案4撤回→案2)。インストール・NW疎通・GUIログイン・**プール`tank`作成完了**。データセット未作成 | 構築中(データセット待ち) |
 | VE3 | Windows 11 (TPM仮想化必要) | 未着手 |
 | VE4 | Pi-hole + SYSLOG (LXC, 特権)。将来Avahi(mDNSリフレクター)も同居 | 未着手 |
 | VE5 | 開発用Linux | 未着手 |
@@ -44,6 +44,8 @@
 
 **下記「案4(コントローラ単位PT)」は実機で不可能と判明し撤回した。** IOMMUグループ14の実態が記録と異なり、チップセットPCIeスイッチ+配下の両NICを含んでいた (`docs/iommu-groups.md`)。VE2へ渡してリセットした瞬間に管理NICごと落ちてホストがハングした (事故: `docs/worklog.md` 2026-07-23(3))。
 **採用: 案2** = vfioを使わずホストが6TB/SSDを直接持ち、`qm set 200 -scsiX /dev/disk/by-id/ata-...` でVE2(TrueNAS)へディスク単位パススルー。TrueNAS GUI維持・GPUのPCIE3温存。SSD/NVMe集約の考え方は案4から引き継ぐ。(本セクションは案2動作確認後に正式改訂する)
+
+> **⚠️ 注意 (2026-07-24 実測)**: `qm set -scsiX` でのディスク割り当ては**必ず `serial=` を明示指定すること**。指定しないとゲスト側でシリアルが空(`None`)になり、TrueNAS等シリアル重複チェックを行うストレージOSでプール作成時に `topology: Disks have duplicate serial numbers` エラーになる。VE2では `scsi0`(ローカルzvolブート)に `serial=TN200BOOT`、`scsi1`(6TB by-id)に `serial=WD-WX42D369CEFE`(実シリアル)を付与して解決した。VE1等で同様のディスク追加を行う際も同じ手順を踏む (詳細: `docs/worklog.md` 2026-07-24(4))
 
 ### ストレージ配置の改訂 — SSDもVE2へ、VMディスクはNVMe集約 (2026-07-23) 【※案4=撤回済み・下記は経緯記録】
 

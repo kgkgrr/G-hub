@@ -11,17 +11,42 @@
   - **案2(ディスク単位パススルー)へ移行**: vfio解除→ホストが6TB/SSD直認識→`qm set 200 -scsiX /dev/disk/by-id/...` でVE2へ。TrueNAS GUIは維持。NVMe集約・256GB据置方針は不変
 - **VE2 (TrueNAS SCALE 25.10.4)**: **インストール完了・ネットワーク疎通OK**。管理 `192.168.20.151` (VLAN20)、hostname `Gnas`、admin=`truenas_admin`。6TBを`scsi1`でディスクPT済み(VE2内では`sda`5.46TiB)。VGA=qxl(std/OVMFで砂嵐→qxlで解決)、serial0あり
 - **中途半端な状態**:
-  - VE2: **プール未作成**(6TBでこれから)。共有(NFS)未設定
+  - VE2: **プール`tank`作成完了**(5.46TiB, Stripe, Healthy, 暗号化なし)。**データセット未作成**、共有(NFS/SMB)未設定
   - SSD(`sda`,240GB)はホスト側で未使用(要wipe→ストレージ化、VE1用)
   - VLAN20/25 の観察・一時許可が継続中
 - **次の一手 (最大3件)**:
-  1. TrueNAS GUI (`https://192.168.20.151`) で**プール名`tank`**作成(単騎5.46TiB stripe、暗号化なし)→ `tank/pic_tank`(Immich),`tank/cam_tank`(Frigate),`tank/doc_tank`(書類) データセット作成→NFS/SMBエクスポート
+  1. TrueNAS GUIで `tank/pic_tank`(Immich),`tank/cam_tank`(Frigate),`tank/doc_tank`(書類) データセット作成(recordsize/compression設定は`plan/03-proxmox.md`参照)→NFS/SMBエクスポート
   2. SSD(240GB)をホストで**LVM-thin化** → VE1にPostgres専用ディスクとしてアタッチ
   3. VE1構築 (Frigate+Immich, GTX1650) → NFS(写真/録画)・SSD(DB)接続
 - **注意中の問題 (最大3件)**:
   1. **UPS未導入** — 本番投入前に必須 (7/20 実停電あり、正弦波必須)
   2. **PBSクォーラム** — 2ノードでQDevice未手当て
   3. **案4事故の教訓** — このボードはIOMMUグループが粗く、SATA/NIC分離不可。PCIパススルーは慎重に (GPUのグループ15は要再確認)
+
+---
+
+## 2026-07-24 (4) 【解決】ディスクのシリアル未伝播でプール作成失敗→serial付与で解決、プール`tank`作成完了
+
+### やったこと
+- TrueNAS GUIでプール作成を試行 → `エラー: topology / Disks have duplicate serial numbers: None (sda, sdb)` で失敗
+- 原因調査: VE2のSCSIディスク定義(`scsi0`=ローカルzvolブート32G, `scsi1`=6TB by-idパススルー)に`serial=`パラメータが無く、ゲスト(TrueNAS)側で両ディスクとも空シリアル(`None`)として認識され、TrueNASの重複ディスク安全チェックに引っかかっていた
+- 対処: VE2を`qm shutdown 200`で停止→`qm set`で両ディスクに`serial=`を追加 (`scsi0`→`serial=TN200BOOT`任意値、`scsi1`→`serial=WD-WX42D369CEFE`実シリアル)→`qm start 200`で起動
+- TrueNAS側で両ディスクのシリアルが別々に表示されることを確認 → プール作成再試行 → **成功**。プール`tank`(1×STRIPE, 1×5.46TiB HDD, Healthy, 暗号化なし)
+
+### つまづきと解決 (次回のため)
+- **Proxmoxでディスクを`by-id`パススルーしても、ゲストにはデフォルトでシリアルが伝わらない。** ローカルzvolディスクも同様にシリアル未設定だと空扱いになる。**TrueNAS(や一部のストレージOS)は「シリアルが同一(=空も同一とみなす)のディスクでVDEVを組もうとしていないか」を検証するため、シリアル未設定だとプール作成時にtopologyエラーで弾かれる。** → **VMのディスクには必ず`serial=`を明示指定する**運用とする(今後VE1等でも同様の構成をする場合は要注意)
+
+### 決めたこと
+- VE2のディスクシリアル運用: 物理ディスク(6TB)は`docs/disks.md`記載の実シリアルをそのまま指定。ローカルzvol(ブート等、物理シリアルが無いもの)は任意の識別しやすい文字列を指定する方針とする
+
+### 未解決・次回やること
+1. TrueNAS GUIで `tank/pic_tank`,`tank/cam_tank`,`tank/doc_tank` データセット作成 → NFS/SMBエクスポート設定
+2. SSD(240GB)のLVM-thin化 → VE1へPostgres専用ディスクとしてアタッチ
+3. VE1構築(Frigate+Immich)着手
+
+### 実機の状態
+- 稼働中: Node0(Proxmox, VLAN20 `.150`)、VE2(TrueNAS `.151`, **プール`tank` Healthy稼働中**、データセット未作成)
+- ホスト保持・未使用: SSD 240GB(`sda`)
 
 ---
 
