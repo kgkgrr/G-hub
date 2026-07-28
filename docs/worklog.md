@@ -15,13 +15,25 @@
   - SSD(`sda`,240GB)はホスト側で未使用(要wipe→ストレージ化、VE1用)
   - VLAN20/25 の観察・一時許可が継続中
 - **次の一手 (最大3件)**:
-  1. TrueNAS GUI (`https://192.168.20.151`) で6TBプール作成(単騎stripe、冗長はPBS委任) → `pool/immich`,`pool/frigate`,`pool/docs` データセット作成(設計は `plan/03-proxmox.md` 参照)
+  1. TrueNAS GUI (`https://192.168.20.151`) で**プール名`tank`**作成(単騎5.46TiB stripe、暗号化なし)→ `tank/pic_tank`(Immich),`tank/cam_tank`(Frigate),`tank/doc_tank`(書類) データセット作成→NFS/SMBエクスポート
   2. SSD(240GB)をホストで**LVM-thin化** → VE1にPostgres専用ディスクとしてアタッチ
   3. VE1構築 (Frigate+Immich, GTX1650) → NFS(写真/録画)・SSD(DB)接続
 - **注意中の問題 (最大3件)**:
   1. **UPS未導入** — 本番投入前に必須 (7/20 実停電あり、正弦波必須)
   2. **PBSクォーラム** — 2ノードでQDevice未手当て
   3. **案4事故の教訓** — このボードはIOMMUグループが粗く、SATA/NIC分離不可。PCIパススルーは慎重に (GPUのグループ15は要再確認)
+
+---
+
+## 2026-07-24 (3) プール名・データセット名を確定
+
+### 決めたこと
+- **プール名は `tank`**(単騎5.46TiB, Stripe, 暗号化なし=ローカル運用のため不要と判断)
+- データセット名は用途プレフィックス方式で確定: `tank/pic_tank`(Immich写真+動画), `tank/cam_tank`(Frigate録画), `tank/doc_tank`(書類)。当初ユーザーから「pic_tank/doc_tank/cam_tankを独立プールに」という案が出たが、**物理ディスクが1本(5.46TiB)のためプールは1つしか作れない**ことを説明し、1プール+3データセット構成に合意
+- `plan/03-proxmox.md` のデータセット設計表を確定名で更新済み(プレースホルダの`pool/*`から`tank/*`へ)
+
+### 未解決・次回やること
+- TrueNAS GUIでの実際のプール作成(`tank`)・3データセット作成・NFS/SMBエクスポート設定(未実施)
 
 ---
 
