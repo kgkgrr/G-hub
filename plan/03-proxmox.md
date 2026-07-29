@@ -11,7 +11,7 @@
 | VM | 内容 | 状態 |
 |---|---|---|
 | VE1 | Frigate + Immich、GTX1650 GPUパススルー | 未着手 |
-| VE2 | **TrueNAS SCALE VM** (VMID=200)。6TB HDDを**ディスク単位パススルー**(案4撤回→案2)。インストール・NW疎通・GUIログイン・**プール`tank`作成完了**。データセット未作成 | 構築中(データセット待ち) |
+| VE2 | **TrueNAS SCALE VM** (VMID=200)。6TB HDDを**ディスク単位パススルー**(案4撤回→案2)。プール`tank`+データセット3つ(`pic_tank`/`cam_tank`=NFS,`doc_tank`=SMB)・共有設定まで完了 | **ストレージ層完成**(NFS許可先はVE1確定IPへ絞り込み待ち) |
 | VE3 | Windows 11 (TPM仮想化必要) | 未着手 |
 | VE4 | Pi-hole + SYSLOG (LXC, 特権)。将来Avahi(mDNSリフレクター)も同居 | 未着手 |
 | VE5 | 開発用Linux | 未着手 |

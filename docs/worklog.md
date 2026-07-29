@@ -10,18 +10,47 @@
   - **案4(コントローラ単位PT)は実機で不可能と判明・撤回**。IOMMUグループ14は「USB+SATA」ではなく**チップセットPCIeスイッチ+配下全デバイス(両NIC含む)**。VE2へ渡した瞬間、管理NIC(`05:00.0`)ごとリセットされ**ホストがハング**(事故発生)。詳細 `docs/iommu-groups.md`
   - **案2(ディスク単位パススルー)へ移行**: vfio解除→ホストが6TB/SSD直認識→`qm set 200 -scsiX /dev/disk/by-id/...` でVE2へ。TrueNAS GUIは維持。NVMe集約・256GB据置方針は不変
 - **VE2 (TrueNAS SCALE 25.10.4)**: **インストール完了・ネットワーク疎通OK**。管理 `192.168.20.151` (VLAN20)、hostname `Gnas`、admin=`truenas_admin`。6TBを`scsi1`でディスクPT済み(VE2内では`sda`5.46TiB)。VGA=qxl(std/OVMFで砂嵐→qxlで解決)、serial0あり
+- **VE2ストレージ層: 完成**。プール`tank`(5.46TiB, Stripe, Healthy, 暗号化なし) + データセット3つ(`pic_tank`/`cam_tank`=NFS, `doc_tank`=SMB)。SMBユーザー`kenji`/`miho`(TrueNASアクセス権限は付与せずSMBのみ)、共有グループ`G-home`(GID3002)作成、`doc_tank`のOwner Group=`G-home`でACL設定済み。NFS許可ネットワークは暫定で`192.168.20.0/24`全体(VE1のIP確定後に絞り込み予定)
 - **中途半端な状態**:
-  - VE2: **プール`tank`作成完了**(5.46TiB, Stripe, Healthy, 暗号化なし)。**データセット未作成**、共有(NFS/SMB)未設定
   - SSD(`sda`,240GB)はホスト側で未使用(要wipe→ストレージ化、VE1用)
   - VLAN20/25 の観察・一時許可が継続中
+  - SMB接続の実機テスト(Macから`kenji`/`miho`でログイン)は未実施
 - **次の一手 (最大3件)**:
-  1. TrueNAS GUIで `tank/pic_tank`(Immich),`tank/cam_tank`(Frigate),`tank/doc_tank`(書類) データセット作成(recordsize/compression設定は`plan/03-proxmox.md`参照)→NFS/SMBエクスポート
+  1. SMB接続テスト(Mac→`doc_tank`)、NFS許可を暫定サブネットからVE1確定IPへ絞り込み(VE1構築後)
   2. SSD(240GB)をホストで**LVM-thin化** → VE1にPostgres専用ディスクとしてアタッチ
   3. VE1構築 (Frigate+Immich, GTX1650) → NFS(写真/録画)・SSD(DB)接続
 - **注意中の問題 (最大3件)**:
   1. **UPS未導入** — 本番投入前に必須 (7/20 実停電あり、正弦波必須)
   2. **PBSクォーラム** — 2ノードでQDevice未手当て
   3. **案4事故の教訓** — このボードはIOMMUグループが粗く、SATA/NIC分離不可。PCIパススルーは慎重に (GPUのグループ15は要再確認)
+
+---
+
+## 2026-07-24 (5) データセット作成・NFS/SMB共有設定完了
+
+### やったこと
+- `tank`直下に3データセット作成: `pic_tank`(汎用, recordsize=1M, lz4)、`cam_tank`(汎用, recordsize=1M, lz4)、`doc_tank`(SMBプリセット, recordsize=デフォルト128K, lz4)
+  - 初回作成時に`cam_tank`→`pic_tank`の子、`doc_tank`→`cam_tank`の子という誤った入れ子になったため、空の状態で削除し`tank`直下に作り直して解決
+- NFS共有作成: `pic_tank`・`cam_tank` を Unix Shares(NFS) で公開。許可ネットワークは暫定で`192.168.20.0/24`(VLAN20全体)。VE1未構築のためホスト単位への絞り込みは保留
+- ローカルユーザー`kenji`・`miho`を作成(SMBアクセスのみ有効化。TrueNASアクセス/Full Adminは付与せず最小権限に)。ホームディレクトリは`doc_tank`配下に自動提案されたが、共有ドキュメント領域に個人フォルダが混在するのを避けるためデフォルトに変更
+- 共有グループ`G-home`(GID 3002, Samba認証=有効)を作成し、`kenji`・`miho`を補助グループとして追加
+- `doc_tank`のACLエディタで Owner Group を `root` → `G-home` に変更(オーナーは`kenji`のまま)、`group@`に修正(読み書き)権限を付与して保存
+- SMB共有(`doc_tank`)を作成・有効化
+
+### つまづきと解決 (次回のため)
+- **ユーザー作成時、デフォルトで「TrueNASアクセス」がFull Adminで有効になっていた。** 家族の共有ファイルアクセス用アカウントなので、管理画面へのアクセスは不要と判断しチェックを外した(最小権限)。ユーザー追加時は毎回この項目を確認すること
+- **グループ作成画面には「メンバー追加」欄が無い。** メンバー登録は各ユーザーの編集画面の「補助グループ」から行う(グループ側からの一括追加はできない)
+- **ユーザー作成で自動生成される「プライベートグループ」(ユーザー名と同名, 例: `kenji`グループ)は正常な仕様。** 削除しようとしてもプライマリグループとして使用中のため削除できないが、これは想定通りで放置してよい。共有アクセス制御に使うのは別途作成した`G-home`グループのみ
+
+### 未解決・次回やること
+1. Macから`kenji`・`miho`両アカウントでSMB接続テスト(`smb://192.168.20.151/doc_tank`)
+2. VE1構築後、NFS許可を`192.168.20.0/24`からVE1の確定IPへ絞り込み
+3. SSD(240GB)のLVM-thin化 → VE1へPostgres専用ディスクとしてアタッチ
+
+### 実機の状態
+- 稼働中: Node0(Proxmox, VLAN20 `.150`)、VE2(TrueNAS `.151`, プール`tank` Healthy、データセット3つ+共有設定済み)
+- ホスト保持・未使用: SSD 240GB(`sda`)
+- 未構築: VE1〜VE6
 
 ---
 
