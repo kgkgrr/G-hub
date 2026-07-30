@@ -175,16 +175,15 @@ VLANアウェア化＋ホスト管理のVLAN20移設を実施・検証済み。�
 - 共有は Immich の**共有アルバム** (子供の写真・家族写真など特定テーマ) と **Partner機能** (ライブラリ全体の相互閲覧、夫婦間向け) で実現する
 - 子供がスマホを持つまでは、親のいずれかがアップロードし共有アルバムに集約する運用とする。専用アカウント発行は端末保有後に着手
 
-### Postgres (Immichメタデータ) の配置 — SanDisk SSD (LVM-thin) に決定
+### Postgres (Immichメタデータ) の配置 — SanDisk SSD (LVM-thin) に決定・ストレージ作成完了 (2026-07-24)
 - **却下**: NVMe(rpool)配置 → 容量を圧迫する。NFS(6TBプール)配置 → Postgresの信頼性・ロック問題があり非推奨
-- **採用**: `docs/disks.md` 記載のSanDisk SSD 240GB (`154778407406`) をホスト側で **LVM-thinストレージ化** し、VE1に専用の追加ディスクとしてアタッチする。VE1内でこのディスクをマウントし、docker-composeの `DB_DATA_LOCATION` をそこへ向ける
+- **採用**: `docs/disks.md` 記載のSanDisk SSD 240GB (`154778407406`) をホスト側で **LVM-thinストレージ化**(Proxmoxストレージ名 `ssd-thin`, Volume Group `ssd-thin`, 235.12GB)し、VE1に専用の追加ディスクとしてアタッチする。VE1内でこのディスクをマウントし、docker-composeの `DB_DATA_LOCATION` をそこへ向ける
 - VE1のOS/ブートディスクはNVMe上に薄く維持 (既定方針通り)。写真・動画本体はTrueNASのNFS (`tank/pic_tank`)、DBだけSSDという3層構成になる
-- SSDのフォーマットは `docs/disks.md` 上で許可済みだが、実行前に必ずシリアル (`154778407406`) で対象を再確認すること (6TB側との取り違え防止)
+- **⚠️ 注意 (2026-07-24 実測)**: ProxmoxのLVM-Thinpool作成ダイアログの「候補ディスク一覧」はパーティション/FS検出の有無だけで絞り込んでおり、**稼働中VMが使用中のディスクでも「未使用」として選択肢に出ることがある**(今回6TB=VE2使用中のディスクが候補に出た)。ダイアログの選択肢を鵜呑みにせず、**必ずシリアル番号で対象を照合してから選択すること**。詳細: `docs/worklog.md` 2026-07-24(6)
 
 ### 未実施
-- TrueNAS GUIでの実際のプール作成・データセット作成・NFS/SMBエクスポート設定
-- Proxmoxホスト上でのSSD LVM-thin化・VE1への追加ディスクアタッチ
-- VE1構築自体が未着手 (Frigate+Immichコンテナ)
+- VE1構築自体が未着手 (Frigate+Immichコンテナ)。`ssd-thin`はまだ未アタッチ
+- VE1構築時に `ssd-thin` からPostgres用ディスクを切り出してアタッチ
 
 ---
 

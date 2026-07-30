@@ -11,18 +11,43 @@
   - **案2(ディスク単位パススルー)へ移行**: vfio解除→ホストが6TB/SSD直認識→`qm set 200 -scsiX /dev/disk/by-id/...` でVE2へ。TrueNAS GUIは維持。NVMe集約・256GB据置方針は不変
 - **VE2 (TrueNAS SCALE 25.10.4)**: **インストール完了・ネットワーク疎通OK**。管理 `192.168.20.151` (VLAN20)、hostname `Gnas`、admin=`truenas_admin`。6TBを`scsi1`でディスクPT済み(VE2内では`sda`5.46TiB)。VGA=qxl(std/OVMFで砂嵐→qxlで解決)、serial0あり
 - **VE2ストレージ層: 完成**。プール`tank`(5.46TiB, Stripe, Healthy, 暗号化なし) + データセット3つ(`pic_tank`/`cam_tank`=NFS, `doc_tank`=SMB)。SMBユーザー`kenji`/`miho`(TrueNASアクセス権限は付与せずSMBのみ)、共有グループ`G-home`(GID3002)作成、`doc_tank`のOwner Group=`G-home`でACL設定済み。NFS許可ネットワークは暫定で`192.168.20.0/24`全体(VE1のIP確定後に絞り込み予定)
+- **SMB接続テスト完了**(Mac→`kenji`/`miho`で`doc_tank`アクセスOK)
+- **SSD LVM-Thin化完了**: `/dev/sda`(SanDisk 240GB, シリアル`154778407406`)を`ディスクの消去`で初期化後、Proxmox `Disks → LVM-Thin` で Thinpool `ssd-thin`(Volume Group `ssd-thin`, 235.12GB, Proxmoxストレージとして登録済み)を作成
 - **中途半端な状態**:
-  - SSD(`sda`,240GB)はホスト側で未使用(要wipe→ストレージ化、VE1用)
+  - `ssd-thin`はまだどのVMにもアタッチしていない(VE1構築時にPostgres用ディスクとして切り出す予定)
   - VLAN20/25 の観察・一時許可が継続中
-  - SMB接続の実機テスト(Macから`kenji`/`miho`でログイン)は未実施
 - **次の一手 (最大3件)**:
-  1. SMB接続テスト(Mac→`doc_tank`)、NFS許可を暫定サブネットからVE1確定IPへ絞り込み(VE1構築後)
-  2. SSD(240GB)をホストで**LVM-thin化** → VE1にPostgres専用ディスクとしてアタッチ
-  3. VE1構築 (Frigate+Immich, GTX1650) → NFS(写真/録画)・SSD(DB)接続
+  1. VE1構築 (Frigate+Immich, GTX1650) → OS/ブートはNVMe、`ssd-thin`からPostgres専用ディスクを切り出してアタッチ、NFS(`pic_tank`/`cam_tank`)・SMB(`doc_tank`)接続
+  2. VE1のIP確定後、NFS許可を暫定サブネット(`192.168.20.0/24`)からVE1のホスト単体へ絞り込み
+  3. GTX1650のホスト側ドライバ(nouveau等)ブラックリスト化(VE1パススルー準備、レベルC)
 - **注意中の問題 (最大3件)**:
   1. **UPS未導入** — 本番投入前に必須 (7/20 実停電あり、正弦波必須)
   2. **PBSクォーラム** — 2ノードでQDevice未手当て
   3. **案4事故の教訓** — このボードはIOMMUグループが粗く、SATA/NIC分離不可。PCIパススルーは慎重に (GPUのグループ15は要再確認)
+
+---
+
+## 2026-07-24 (6) 【ヒヤリハット】LVM-Thinpool作成ダイアログの罠、SSD LVM-Thin化完了
+
+### やったこと
+- Mac→`kenji`/`miho`でSMB接続テスト実施、`doc_tank`へのアクセス確認OK
+- Proxmox GUI `Disks → LVM-Thin → Create: Thin Pool` でSSDをThinpool化しようとしたところ、**ディスク選択肢に6TB(`/dev/sdb`, VE2使用中)しか出ず、SSD(`/dev/sda`)が出ない**事象が発生。ユーザーが気づいてダイアログを開いたまま報告、実行前に停止できた(実害なし)
+- 原因調査: `/dev/sda`(SanDisk)に旧NTFSパーティション(sda1/2/3)が残存しており、**Proxmoxはパーティション/FSが検出済みのディスクを候補から除外する**。一方`/dev/sdb`(6TB)は現在VE2が使用中にもかかわらず、ホスト側のパーティションテーブルとしては未検出のため**「未使用」として候補に出てしまう**
+- 対処: ダイアログを一旦閉じ、`Node0 → Disks`で`/dev/sda`(シリアル`154778407406`で再確認)を選択→**「ディスクの消去」**でNTFS残骸をクリア→再度`Create: Thin Pool`を開くと`/dev/sda`が選択可能になり、Thinpool `ssd-thin`(Volume Group `ssd-thin`, 235.12GB)を作成・Proxmoxストレージとして登録
+
+### つまづきと解決 (次回のため・重要)
+- **ProxmoxのLVM-Thinpool作成ダイアログの「候補ディスク一覧」は安全装置として信用できない。** 既存のパーティション/FS情報の有無だけで候補を出し分けており、「実際に他のVMが使用中かどうか」は考慮されない。**稼働中のVM(特にTrueNASのようなディスクパススルー先)が使っているディスクでも平気で選択肢に出てくる。** → **今後同様の作業では、ダイアログの選択肢を鵜呑みにせず、必ずシリアル番号で対象を照合してから選択・実行する**(今回はこの原則を徹底していたおかげでヒヤリハットで済んだ)
+
+### 決めたこと
+- SSDのストレージ化方式は**LVM-Thin**(名前`ssd-thin`)で確定。ZFS-on-ZFSのオーバーヘッドを避けるための当初方針通り
+
+### 未解決・次回やること
+1. VE1構築時に`ssd-thin`からPostgres専用ディスクを切り出してアタッチ(まだ未実施、Thinpool作成のみ完了)
+
+### 実機の状態
+- 稼働中: Node0(Proxmox, VLAN20 `.150`)、VE2(TrueNAS `.151`, プール`tank` Healthy、共有設定済み・SMB接続確認済み)
+- Proxmoxストレージ: `ssd-thin`(LVM-Thin, 235.12GB)追加済み、未アタッチ
+- 未構築: VE1〜VE6
 
 ---
 
