@@ -133,15 +133,15 @@ save
 
 ```
 RTX830
- └─ ip keepalive 1 (10秒ごとに ping)
-       ├─ 8.8.8.8 (Google DNS)
-       └─ 8.8.4.4 (Google DNS)
+ ├─ ip keepalive 1 (IPv4: 3秒ごとに ping → 3回連続失敗で約9秒後にダウン判定)
+ │     └─ 8.8.8.8 (Google Public DNS)
+ │           → MAP-E デフォルトルート 自動無効化 / 復旧で自動再有効化
+ │
+ └─ ip keepalive 2 (IPv6: 3秒ごとに ping6 → 3回連続失敗で約9秒後にダウン判定)
+       └─ 2001:4860:4860::8888 (Google Public DNS v6)
 
-どちらも5回連続失敗 (約50秒)
-  → デフォルトルート自動無効化
-  → 復旧検知次第、自動再有効化
-
-毎日 03:30 → DHCPv6-PD renew 送信（IPv6セッション維持）
+毎日 03:30 → DHCPv6 renew 送信（IPv6セッション維持）
+毎日 04:00 → NTP 時刻同期
 ```
 
 ### 監視状態の確認コマンド
