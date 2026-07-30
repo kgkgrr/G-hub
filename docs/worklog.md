@@ -10,18 +10,109 @@
   - **案4(コントローラ単位PT)は実機で不可能と判明・撤回**。IOMMUグループ14は「USB+SATA」ではなく**チップセットPCIeスイッチ+配下全デバイス(両NIC含む)**。VE2へ渡した瞬間、管理NIC(`05:00.0`)ごとリセットされ**ホストがハング**(事故発生)。詳細 `docs/iommu-groups.md`
   - **案2(ディスク単位パススルー)へ移行**: vfio解除→ホストが6TB/SSD直認識→`qm set 200 -scsiX /dev/disk/by-id/...` でVE2へ。TrueNAS GUIは維持。NVMe集約・256GB据置方針は不変
 - **VE2 (TrueNAS SCALE 25.10.4)**: **インストール完了・ネットワーク疎通OK**。管理 `192.168.20.151` (VLAN20)、hostname `Gnas`、admin=`truenas_admin`。6TBを`scsi1`でディスクPT済み(VE2内では`sda`5.46TiB)。VGA=qxl(std/OVMFで砂嵐→qxlで解決)、serial0あり
+- **VE2ストレージ層: 完成**。プール`tank`(5.46TiB, Stripe, Healthy, 暗号化なし) + データセット3つ(`pic_tank`/`cam_tank`=NFS, `doc_tank`=SMB)。SMBユーザー`kenji`/`miho`(TrueNASアクセス権限は付与せずSMBのみ)、共有グループ`G-home`(GID3002)作成、`doc_tank`のOwner Group=`G-home`でACL設定済み。NFS許可ネットワークは暫定で`192.168.20.0/24`全体(VE1のIP確定後に絞り込み予定)
+- **SMB接続テスト完了**(Mac→`kenji`/`miho`で`doc_tank`アクセスOK)
+- **SSD LVM-Thin化完了**: `/dev/sda`(SanDisk 240GB, シリアル`154778407406`)を`ディスクの消去`で初期化後、Proxmox `Disks → LVM-Thin` で Thinpool `ssd-thin`(Volume Group `ssd-thin`, 235.12GB, Proxmoxストレージとして登録済み)を作成
 - **中途半端な状態**:
-  - VE2: **プール未作成**(6TBでこれから)。共有(NFS)未設定
-  - SSD(`sda`,240GB)はホスト側で未使用(要wipe→ストレージ化、VE1用)
+  - `ssd-thin`はまだどのVMにもアタッチしていない(VE1構築時にPostgres用ディスクとして切り出す予定)
   - VLAN20/25 の観察・一時許可が継続中
 - **次の一手 (最大3件)**:
-  1. TrueNAS GUI (`https://192.168.20.151`) で6TBプール作成(単騎stripe、冗長はPBS委任) → `pool/immich`,`pool/frigate`,`pool/docs` データセット作成(設計は `plan/03-proxmox.md` 参照)
-  2. SSD(240GB)をホストで**LVM-thin化** → VE1にPostgres専用ディスクとしてアタッチ
-  3. VE1構築 (Frigate+Immich, GTX1650) → NFS(写真/録画)・SSD(DB)接続
+  1. VE1構築 (Frigate+Immich, GTX1650) → OS/ブートはNVMe、`ssd-thin`からPostgres専用ディスクを切り出してアタッチ、NFS(`pic_tank`/`cam_tank`)・SMB(`doc_tank`)接続
+  2. VE1のIP確定後、NFS許可を暫定サブネット(`192.168.20.0/24`)からVE1のホスト単体へ絞り込み
+  3. GTX1650のホスト側ドライバ(nouveau等)ブラックリスト化(VE1パススルー準備、レベルC)
 - **注意中の問題 (最大3件)**:
   1. **UPS未導入** — 本番投入前に必須 (7/20 実停電あり、正弦波必須)
   2. **PBSクォーラム** — 2ノードでQDevice未手当て
   3. **案4事故の教訓** — このボードはIOMMUグループが粗く、SATA/NIC分離不可。PCIパススルーは慎重に (GPUのグループ15は要再確認)
+
+---
+
+## 2026-07-24 (6) 【ヒヤリハット】LVM-Thinpool作成ダイアログの罠、SSD LVM-Thin化完了
+
+### やったこと
+- Mac→`kenji`/`miho`でSMB接続テスト実施、`doc_tank`へのアクセス確認OK
+- Proxmox GUI `Disks → LVM-Thin → Create: Thin Pool` でSSDをThinpool化しようとしたところ、**ディスク選択肢に6TB(`/dev/sdb`, VE2使用中)しか出ず、SSD(`/dev/sda`)が出ない**事象が発生。ユーザーが気づいてダイアログを開いたまま報告、実行前に停止できた(実害なし)
+- 原因調査: `/dev/sda`(SanDisk)に旧NTFSパーティション(sda1/2/3)が残存しており、**Proxmoxはパーティション/FSが検出済みのディスクを候補から除外する**。一方`/dev/sdb`(6TB)は現在VE2が使用中にもかかわらず、ホスト側のパーティションテーブルとしては未検出のため**「未使用」として候補に出てしまう**
+- 対処: ダイアログを一旦閉じ、`Node0 → Disks`で`/dev/sda`(シリアル`154778407406`で再確認)を選択→**「ディスクの消去」**でNTFS残骸をクリア→再度`Create: Thin Pool`を開くと`/dev/sda`が選択可能になり、Thinpool `ssd-thin`(Volume Group `ssd-thin`, 235.12GB)を作成・Proxmoxストレージとして登録
+
+### つまづきと解決 (次回のため・重要)
+- **ProxmoxのLVM-Thinpool作成ダイアログの「候補ディスク一覧」は安全装置として信用できない。** 既存のパーティション/FS情報の有無だけで候補を出し分けており、「実際に他のVMが使用中かどうか」は考慮されない。**稼働中のVM(特にTrueNASのようなディスクパススルー先)が使っているディスクでも平気で選択肢に出てくる。** → **今後同様の作業では、ダイアログの選択肢を鵜呑みにせず、必ずシリアル番号で対象を照合してから選択・実行する**(今回はこの原則を徹底していたおかげでヒヤリハットで済んだ)
+
+### 決めたこと
+- SSDのストレージ化方式は**LVM-Thin**(名前`ssd-thin`)で確定。ZFS-on-ZFSのオーバーヘッドを避けるための当初方針通り
+
+### 未解決・次回やること
+1. VE1構築時に`ssd-thin`からPostgres専用ディスクを切り出してアタッチ(まだ未実施、Thinpool作成のみ完了)
+
+### 実機の状態
+- 稼働中: Node0(Proxmox, VLAN20 `.150`)、VE2(TrueNAS `.151`, プール`tank` Healthy、共有設定済み・SMB接続確認済み)
+- Proxmoxストレージ: `ssd-thin`(LVM-Thin, 235.12GB)追加済み、未アタッチ
+- 未構築: VE1〜VE6
+
+---
+
+## 2026-07-24 (5) データセット作成・NFS/SMB共有設定完了
+
+### やったこと
+- `tank`直下に3データセット作成: `pic_tank`(汎用, recordsize=1M, lz4)、`cam_tank`(汎用, recordsize=1M, lz4)、`doc_tank`(SMBプリセット, recordsize=デフォルト128K, lz4)
+  - 初回作成時に`cam_tank`→`pic_tank`の子、`doc_tank`→`cam_tank`の子という誤った入れ子になったため、空の状態で削除し`tank`直下に作り直して解決
+- NFS共有作成: `pic_tank`・`cam_tank` を Unix Shares(NFS) で公開。許可ネットワークは暫定で`192.168.20.0/24`(VLAN20全体)。VE1未構築のためホスト単位への絞り込みは保留
+- ローカルユーザー`kenji`・`miho`を作成(SMBアクセスのみ有効化。TrueNASアクセス/Full Adminは付与せず最小権限に)。ホームディレクトリは`doc_tank`配下に自動提案されたが、共有ドキュメント領域に個人フォルダが混在するのを避けるためデフォルトに変更
+- 共有グループ`G-home`(GID 3002, Samba認証=有効)を作成し、`kenji`・`miho`を補助グループとして追加
+- `doc_tank`のACLエディタで Owner Group を `root` → `G-home` に変更(オーナーは`kenji`のまま)、`group@`に修正(読み書き)権限を付与して保存
+- SMB共有(`doc_tank`)を作成・有効化
+
+### つまづきと解決 (次回のため)
+- **ユーザー作成時、デフォルトで「TrueNASアクセス」がFull Adminで有効になっていた。** 家族の共有ファイルアクセス用アカウントなので、管理画面へのアクセスは不要と判断しチェックを外した(最小権限)。ユーザー追加時は毎回この項目を確認すること
+- **グループ作成画面には「メンバー追加」欄が無い。** メンバー登録は各ユーザーの編集画面の「補助グループ」から行う(グループ側からの一括追加はできない)
+- **ユーザー作成で自動生成される「プライベートグループ」(ユーザー名と同名, 例: `kenji`グループ)は正常な仕様。** 削除しようとしてもプライマリグループとして使用中のため削除できないが、これは想定通りで放置してよい。共有アクセス制御に使うのは別途作成した`G-home`グループのみ
+
+### 未解決・次回やること
+1. Macから`kenji`・`miho`両アカウントでSMB接続テスト(`smb://192.168.20.151/doc_tank`)
+2. VE1構築後、NFS許可を`192.168.20.0/24`からVE1の確定IPへ絞り込み
+3. SSD(240GB)のLVM-thin化 → VE1へPostgres専用ディスクとしてアタッチ
+
+### 実機の状態
+- 稼働中: Node0(Proxmox, VLAN20 `.150`)、VE2(TrueNAS `.151`, プール`tank` Healthy、データセット3つ+共有設定済み)
+- ホスト保持・未使用: SSD 240GB(`sda`)
+- 未構築: VE1〜VE6
+
+---
+
+## 2026-07-24 (4) 【解決】ディスクのシリアル未伝播でプール作成失敗→serial付与で解決、プール`tank`作成完了
+
+### やったこと
+- TrueNAS GUIでプール作成を試行 → `エラー: topology / Disks have duplicate serial numbers: None (sda, sdb)` で失敗
+- 原因調査: VE2のSCSIディスク定義(`scsi0`=ローカルzvolブート32G, `scsi1`=6TB by-idパススルー)に`serial=`パラメータが無く、ゲスト(TrueNAS)側で両ディスクとも空シリアル(`None`)として認識され、TrueNASの重複ディスク安全チェックに引っかかっていた
+- 対処: VE2を`qm shutdown 200`で停止→`qm set`で両ディスクに`serial=`を追加 (`scsi0`→`serial=TN200BOOT`任意値、`scsi1`→`serial=WD-WX42D369CEFE`実シリアル)→`qm start 200`で起動
+- TrueNAS側で両ディスクのシリアルが別々に表示されることを確認 → プール作成再試行 → **成功**。プール`tank`(1×STRIPE, 1×5.46TiB HDD, Healthy, 暗号化なし)
+
+### つまづきと解決 (次回のため)
+- **Proxmoxでディスクを`by-id`パススルーしても、ゲストにはデフォルトでシリアルが伝わらない。** ローカルzvolディスクも同様にシリアル未設定だと空扱いになる。**TrueNAS(や一部のストレージOS)は「シリアルが同一(=空も同一とみなす)のディスクでVDEVを組もうとしていないか」を検証するため、シリアル未設定だとプール作成時にtopologyエラーで弾かれる。** → **VMのディスクには必ず`serial=`を明示指定する**運用とする(今後VE1等でも同様の構成をする場合は要注意)
+
+### 決めたこと
+- VE2のディスクシリアル運用: 物理ディスク(6TB)は`docs/disks.md`記載の実シリアルをそのまま指定。ローカルzvol(ブート等、物理シリアルが無いもの)は任意の識別しやすい文字列を指定する方針とする
+
+### 未解決・次回やること
+1. TrueNAS GUIで `tank/pic_tank`,`tank/cam_tank`,`tank/doc_tank` データセット作成 → NFS/SMBエクスポート設定
+2. SSD(240GB)のLVM-thin化 → VE1へPostgres専用ディスクとしてアタッチ
+3. VE1構築(Frigate+Immich)着手
+
+### 実機の状態
+- 稼働中: Node0(Proxmox, VLAN20 `.150`)、VE2(TrueNAS `.151`, **プール`tank` Healthy稼働中**、データセット未作成)
+- ホスト保持・未使用: SSD 240GB(`sda`)
+
+---
+
+## 2026-07-24 (3) プール名・データセット名を確定
+
+### 決めたこと
+- **プール名は `tank`**(単騎5.46TiB, Stripe, 暗号化なし=ローカル運用のため不要と判断)
+- データセット名は用途プレフィックス方式で確定: `tank/pic_tank`(Immich写真+動画), `tank/cam_tank`(Frigate録画), `tank/doc_tank`(書類)。当初ユーザーから「pic_tank/doc_tank/cam_tankを独立プールに」という案が出たが、**物理ディスクが1本(5.46TiB)のためプールは1つしか作れない**ことを説明し、1プール+3データセット構成に合意
+- `plan/03-proxmox.md` のデータセット設計表を確定名で更新済み(プレースホルダの`pool/*`から`tank/*`へ)
+
+### 未解決・次回やること
+- TrueNAS GUIでの実際のプール作成(`tank`)・3データセット作成・NFS/SMBエクスポート設定(未実施)
 
 ---
 
