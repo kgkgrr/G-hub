@@ -10,7 +10,7 @@
 
 | VM | 内容 | 状態 |
 |---|---|---|
-| VE1 | Frigate + Immich、GTX1650 GPUパススルー | 未着手 |
+| VE1 | Frigate + Immich、GTX1650 GPUパススルー | 未着手 (構築手順ドラフト: [`docs/ve1-immich-build.md`](../docs/ve1-immich-build.md)) |
 | VE2 | **TrueNAS SCALE VM** (VMID=200)。6TB HDDを**ディスク単位パススルー**(案4撤回→案2)。プール`tank`+データセット3つ(`pic_tank`/`cam_tank`=NFS,`doc_tank`=SMB)・共有設定まで完了 | **ストレージ層完成**(NFS許可先はVE1確定IPへ絞り込み待ち) |
 | VE3 | Windows 11 (TPM仮想化必要) | 未着手 |
 | VE4 | Pi-hole + SYSLOG (LXC, 特権)。将来Avahi(mDNSリフレクター)も同居 | 未着手 |
@@ -184,6 +184,7 @@ VLANアウェア化＋ホスト管理のVLAN20移設を実施・検証済み。�
 ### 未実施
 - VE1構築自体が未着手 (Frigate+Immichコンテナ)。`ssd-thin`はまだ未アタッチ
 - VE1構築時に `ssd-thin` からPostgres用ディスクを切り出してアタッチ
+- **構築手順のドラフトを作成** ([`docs/ve1-immich-build.md`](../docs/ve1-immich-build.md))。GPU IOMMUグループ実測→nouveauブラックリスト(レベルC)→VM作成→GPU passthrough→OS/Docker/nvidia-container-toolkit→NFS/SSDマウント→Immich docker-compose起動、の順。docker-compose雛形は `configs/immich/`。**実機実行はユーザー本人が行う** (`docs/worklog.md` 2026-07-22の役割分担)
 
 ---
 

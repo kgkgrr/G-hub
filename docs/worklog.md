@@ -13,17 +13,42 @@
 - **VE2ストレージ層: 完成**。プール`tank`(5.46TiB, Stripe, Healthy, 暗号化なし) + データセット3つ(`pic_tank`/`cam_tank`=NFS, `doc_tank`=SMB)。SMBユーザー`kenji`/`miho`(TrueNASアクセス権限は付与せずSMBのみ)、共有グループ`G-home`(GID3002)作成、`doc_tank`のOwner Group=`G-home`でACL設定済み。NFS許可ネットワークは暫定で`192.168.20.0/24`全体(VE1のIP確定後に絞り込み予定)
 - **SMB接続テスト完了**(Mac→`kenji`/`miho`で`doc_tank`アクセスOK)
 - **SSD LVM-Thin化完了**: `/dev/sda`(SanDisk 240GB, シリアル`154778407406`)を`ディスクの消去`で初期化後、Proxmox `Disks → LVM-Thin` で Thinpool `ssd-thin`(Volume Group `ssd-thin`, 235.12GB, Proxmoxストレージとして登録済み)を作成
+- **VE1構築手順ドラフト作成済み** (`docs/ve1-immich-build.md`)。Step0 GPU IOMMU実測→Step1 nouveauブラックリスト(レベルC)→Step2 VM作成→Step3 GPU passthrough→Step4-5 OS/Docker/nvidia-container-toolkit→Step6-7 NFS/SSDマウント→Step8 Immich起動、の手順とdocker-compose雛形(`configs/immich/`)を用意。**実機未着手**(このセッションはNode0実機に触れない、ドキュメント整備のみ)
 - **中途半端な状態**:
   - `ssd-thin`はまだどのVMにもアタッチしていない(VE1構築時にPostgres用ディスクとして切り出す予定)
   - VLAN20/25 の観察・一時許可が継続中
 - **次の一手 (最大3件)**:
-  1. VE1構築 (Frigate+Immich, GTX1650) → OS/ブートはNVMe、`ssd-thin`からPostgres専用ディスクを切り出してアタッチ、NFS(`pic_tank`/`cam_tank`)・SMB(`doc_tank`)接続
-  2. VE1のIP確定後、NFS許可を暫定サブネット(`192.168.20.0/24`)からVE1のホスト単体へ絞り込み
-  3. GTX1650のホスト側ドライバ(nouveau等)ブラックリスト化(VE1パススルー準備、レベルC)
+  1. `docs/ve1-immich-build.md` Step0: GTX1650のIOMMUグループを実測確認 (グループ15と推定、未確定)
+  2. Step1: nouveauブラックリスト化(レベルC、要承認・reboot) → Step2以降でVE1 VM作成・GPU passthrough・OS構築・Immich起動
+  3. VE1のIP確定後、NFS許可を暫定サブネット(`192.168.20.0/24`)からVE1のホスト単体へ絞り込み
 - **注意中の問題 (最大3件)**:
   1. **UPS未導入** — 本番投入前に必須 (7/20 実停電あり、正弦波必須)
   2. **PBSクォーラム** — 2ノードでQDevice未手当て
   3. **案4事故の教訓** — このボードはIOMMUグループが粗く、SATA/NIC分離不可。PCIパススルーは慎重に (GPUのグループ15は要再確認)
+
+---
+
+## 2026-07-31 VE1(Immich)構築手順ドラフト作成
+
+### やったこと
+- `worklog.md`/`plan/03-proxmox.md`を確認 → 前提条件(VE2ストレージ層・SSD LVM-thin化)が完了済みで、VE1構築が次の一手の筆頭になっていることを確認
+- 作業ブランチ(`claude/ve1-immich-setup-297x6f`)が古いコミット(`49f8297`)から分岐しており、mainの最新9コミット(TrueNASプール作成・データセット/NFS/SMB共有・SSD LVM-thin化)を含んでいなかったため、`origin/main`へfast-forwardして最新化
+- VE1構築手順のドラフト `docs/ve1-immich-build.md` を新規作成: GPU IOMMUグループ実測→nouveauブラックリスト(レベルC)→VM作成→GPU passthrough→OS/Docker/nvidia-container-toolkit→NFS(`tank/pic_tank`)/SSD(`ssd-thin`)マウント→Immich起動、の8ステップ
+- Immichのdocker-compose雛形を作成: `configs/immich/docker-compose.yml`、`configs/immich/immich.env.example`(秘密情報は含まず、`.env`自体は`.gitignore`対象)
+- `plan/03-proxmox.md`のVE1行・Postgres配置セクションから新規ドキュメントへリンクを追加
+
+### 決めたこと
+- **本セッションでは実機コマンドを実行しない**。2026-07-22に決めた役割分担(実機操作はユーザー本人、Claudeは手順設計・ドキュメント整備)を踏襲。このセッション自体もNode0実機にアクセスできないリモート環境のため、方針と実態が一致
+- 手順書のスペック値(VM RAM/コア数、ディスク容量等)は**提案値**として明記し、確定値としては書かない。実機未確認のGTX1650のPCI IDやIOMMUグループも同様にプレースホルダとし、Step0の実測を経てから埋める設計とした(CLAUDE.md §2「推測で叩かない」)
+- Frigateのdocker-compose統合は本ドラフトのスコープ外とし、後続タスクとして明記(ブランチ名`ve1-immich-setup`のスコープに合わせた)
+
+### 未解決・次回やること
+1. `docs/ve1-immich-build.md` Step0: GTX1650のIOMMUグループを実機で実測 (グループ15と推定、未確定)
+2. Step1のnouveauブラックリスト化(レベルC)を承認のうえ実行 → reboot → Step2以降でVE1構築
+3. NFS許可アドレスの絞り込み、Cloudflare Tunnel外部公開はVE1構築完了後
+
+### 実機の状態
+- 変更なし(ドキュメント整備のみ、実機操作は未実施)。稼働中: Node0(Proxmox, VLAN20 `.150`)、VE2(TrueNAS `.151`, プール`tank` Healthy・共有設定済み)。Proxmoxストレージ: `ssd-thin`(LVM-Thin, 235.12GB)未アタッチ。未構築: VE1〜VE6
 
 ---
 

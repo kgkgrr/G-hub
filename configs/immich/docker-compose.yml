@@ -1,0 +1,64 @@
+# Immich docker-compose — VE1用ドラフト
+#
+# 構成 (docs/ve1-immich-build.md 参照):
+#   - 写真/動画実体 (UPLOAD_LOCATION) → NFSマウント /mnt/nfs/pic_tank (VE2 TrueNAS: tank/pic_tank)
+#   - Postgresデータ (DB_DATA_LOCATION) → SSD (ssd-thin切り出し) マウント /mnt/ssd-pgdata
+#   - immich-machine-learning → GTX1650をnvidia-container-toolkit経由で共有 (Frigateとの共存はplan/04-gpu-ai.md)
+#
+# 導入前に公式の最新 docker-compose.yml / hwaccel.ml.yml (https://github.com/immich-app/immich) との
+# 差分 (イメージタグ、Postgresイメージ等) を確認すること。ここでの値は骨格の参考。
+
+name: immich
+
+services:
+  immich-server:
+    image: ghcr.io/immich-app/immich-server:${IMMICH_VERSION:-release}
+    volumes:
+      - ${UPLOAD_LOCATION}:/usr/src/app/upload
+      - /etc/localtime:/etc/localtime:ro
+    env_file:
+      - .env
+    ports:
+      - '2283:2283'
+    depends_on:
+      - redis
+      - database
+    restart: unless-stopped
+    healthcheck:
+      disable: false
+
+  immich-machine-learning:
+    image: ghcr.io/immich-app/immich-machine-learning:${IMMICH_VERSION:-release}-cuda
+    volumes:
+      - model-cache:/cache
+    env_file:
+      - .env
+    restart: unless-stopped
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+
+  redis:
+    image: docker.io/valkey/valkey:8-bookworm
+    restart: unless-stopped
+
+  database:
+    image: ghcr.io/immich-app/postgres:14
+    env_file:
+      - .env
+    environment:
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+      POSTGRES_USER: ${DB_USERNAME}
+      POSTGRES_DB: ${DB_DATABASE_NAME}
+      POSTGRES_INITDB_ARGS: '--data-checksums'
+    volumes:
+      - ${DB_DATA_LOCATION}:/var/lib/postgresql/data
+    restart: unless-stopped
+    shm_size: 128mb
+
+volumes:
+  model-cache:
