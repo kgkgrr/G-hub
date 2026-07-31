@@ -17,9 +17,10 @@
 - **中途半端な状態**:
   - `ssd-thin`はまだどのVMにもアタッチしていない(VE1構築時にPostgres用ディスクとして切り出す予定)
   - VLAN20/25 の観察・一時許可が継続中
+- **GTX1650 IOMMUグループ実測完了 (2026-08-01)**: グループ15は`07:00.0`(VGA,`10de:1f82`)/`07:00.1`(Audio,`10de:10fa`)の2件のみ、道連れデバイスなし。パススルー可能と確定 (`docs/iommu-groups.md`)
 - **次の一手 (最大3件)**:
-  1. `docs/ve1-immich-build.md` Step0: GTX1650のIOMMUグループを実測確認 (グループ15と推定、未確定)
-  2. Step1: nouveauブラックリスト化(レベルC、要承認・reboot) → Step2以降でVE1 VM作成・GPU passthrough・OS構築・Immich起動
+  1. `docs/ve1-immich-build.md` Step1: nouveauブラックリスト化+vfio-pciバインド(レベルC、要承認・reboot)
+  2. Step2以降: VE1 VM作成・GPU passthrough・OS(Debian12)構築・Docker/nvidia-container-toolkit・NFS/SSDマウント・Immich起動
   3. VE1のIP確定後、NFS許可を暫定サブネット(`192.168.20.0/24`)からVE1のホスト単体へ絞り込み
 - **注意中の問題 (最大3件)**:
   1. **UPS未導入** — 本番投入前に必須 (7/20 実停電あり、正弦波必須)

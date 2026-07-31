@@ -33,8 +33,23 @@
 | グループ | 主なデバイス |
 |---|---|
 | 13 | `01:00.0` (要確認: GPU or NIC) |
-| 15 | `07:00.0` / `07:00.1` — GTX1650 (VGA+HDMI Audio) と推定 |
+| 15 | `07:00.0` / `07:00.1` — GTX1650 (VGA+HDMI Audio) | **実測確認済み** |
 | 16-18 | `08:00.0` / `08:00.2` / `08:00.3` (USB=KB/マウス側は18) |
 | 19-21 | `09:00.0` / `09:00.2`(FCH SATA, 物理コネクタ無し) / `09:00.3` |
 
-> GTX1650 (VE1パススルー予定) はグループ15で単独と見られる。VE1構築時に `lspci` で正式確認する。
+## グループ15 (GTX1650) の実測確認 (2026-08-01, VE1構築 Step0)
+
+**グループ14 (チップセットスイッチ道連れ) と異なり、グループ15はGTX1650の2デバイスのみで閉じている。道連れデバイスなし。パススルー可能と確定。**
+
+| BDF | ID | 種別 | 備考 |
+|---|---|---|---|
+| `07:00.0` | `10de:1f82` | VGA (GeForce GTX 1650, TU117) | 現状 `nouveau` が保持。VE1パススルー時は `vfio-pci` へ切替 |
+| `07:00.1` | `10de:10fa` | Audio (HDMI Audio) | 現状 `snd_hda_intel` が保持。VE1パススルー時は `vfio-pci` へ切替 |
+
+確認コマンド:
+```bash
+lspci -nnk | grep -A3 -i nvidia
+for g in /sys/kernel/iommu_groups/*/devices/*; do echo "${g%%/devices/*} => $(basename "$g")"; done | grep "07:00"
+for d in /sys/kernel/iommu_groups/15/devices/*; do echo "$d"; lspci -nnks "$(basename "$d")"; done
+```
+出力: グループ15の中身は `0000:07:00.0` / `0000:07:00.1` の2件のみ。他デバイスの混在なし (`docs/worklog.md` 2026-08-01参照)。

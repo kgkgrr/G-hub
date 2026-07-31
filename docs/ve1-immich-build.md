@@ -16,7 +16,7 @@
 |---|---|
 | VE2 (TrueNAS) ストレージ層: プール`tank`+データセット(`pic_tank`/`cam_tank`=NFS, `doc_tank`=SMB) | ✅ 完了 |
 | SSD LVM-thin化 (`ssd-thin`, 235.12GB, Proxmoxストレージ登録済み) | ✅ 完了 (未アタッチ) |
-| GTX1650のIOMMUグループ確認 (グループ15と推定、未確定) | ⬜ 未実施 (Step 0) |
+| GTX1650のIOMMUグループ確認 (グループ15、単独=道連れなしを実測確認済み) | ✅ 完了 (2026-08-01、`docs/iommu-groups.md`) |
 | GTX1650のホスト側ドライバ(nouveau)ブラックリスト化 | ⬜ 未実施 (Step 1、レベルC) |
 | VE1 VM本体 | ⬜ 未作成 |
 | NFS許可アドレスの絞り込み (暫定 `192.168.20.0/24` → VE1確定IPへ) | ⬜ VE1のIP確定後に対応 |
@@ -60,7 +60,7 @@ done
 - グループにGTX1650のVGA機能とHDMI Audio機能の2つ**だけ**が含まれているか
 - 管理NICやSATAコントローラ等、他の道連れデバイスがないか (グループ14事故の再発防止)
 
-この結果を `docs/iommu-groups.md` に追記してから Step 1 へ進む。**道連れデバイスが見つかった場合はここで停止し、方式を再検討する。**
+**✅ 2026-08-01実測確認済み**: グループ15は `07:00.0`(VGA)/`07:00.1`(Audio) の2件のみ、道連れデバイスなし。パススルー可能と判断し `docs/iommu-groups.md` に記録済み。Step 1 へ進んでよい。
 
 ---
 
@@ -75,7 +75,7 @@ mkdir -p /root/backup
 cp /etc/modprobe.d/vfio.conf /root/backup/vfio.conf.$(date +%Y%m%d)
 ```
 
-### 追加設定 (Step 0で確定した実際のIDに置き換えること)
+### 追加設定
 
 `/etc/modprobe.d/blacklist-nouveau.conf` (新規):
 ```
@@ -85,11 +85,13 @@ options nouveau modeset=0
 
 `/etc/modprobe.d/vfio.conf` (既存ファイルに追記。VE2用の `1022:43d5,1022:43c8` は変更しない):
 ```
-options vfio-pci ids=1022:43d5,1022:43c8,<NVIDIA VGA ID>,<NVIDIA Audio ID>
+options vfio-pci ids=1022:43d5,1022:43c8,10de:1f82,10de:10fa
 softdep ahci pre: vfio-pci
 softdep xhci_pci pre: vfio-pci
 softdep nouveau pre: vfio-pci
+softdep snd_hda_intel pre: vfio-pci
 ```
+(`10de:1f82`=GTX1650 VGA, `10de:10fa`=HDMI Audio。2026-08-01実測確認済み、`docs/iommu-groups.md`参照。Audio機能は`snd_hda_intel`が先に掴むため`softdep`にも追加)
 
 反映:
 ```bash
