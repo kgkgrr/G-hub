@@ -19,14 +19,36 @@
   - VLAN20/25 の観察・一時許可が継続中
 - **GTX1650 IOMMUグループ実測完了 (2026-08-01)**: グループ15は`07:00.0`(VGA,`10de:1f82`)/`07:00.1`(Audio,`10de:10fa`)の2件のみ、道連れデバイスなし。パススルー可能と確定 (`docs/iommu-groups.md`)
 - **GTX1650 vfio-pciバインド完了 (2026-08-01)**: VE2正常停止→`blacklist-nouveau.conf`/`vfio.conf`(GTX1650のみ)新規作成→initramfs反映→reboot→`07:00.0`/`07:00.1`とも`vfio-pci`確認。VE2再起動済み。旧`vfio.conf`(案4のSATA/USB用)は`/root/backup/vfio.conf.20260724-000854`のまま復元せず
+- **VE1 VM作成完了 (2026-08-01)**: VMID=**100**(提案の101から変更)、q35/OVMF、scsi0=32GB(serial=VE1BOOT)、RAM12GB/6コア/tag20。GPU未接続・OS未インストール
 - **次の一手 (最大3件)**:
-  1. `docs/ve1-immich-build.md` Step2: VE1 VM作成 (`qm create 101`、スペック提案値の確認含む)
-  2. Step3-5: GPU passthrough(`hostpci0`)追加→Debian12インストール→Docker/nvidia-container-toolkit
+  1. `docs/ve1-immich-build.md` Step3: GPU passthrough(`qm set 100 -hostpci0 0000:07:00,...`)追加
+  2. Step4-5: Debian12インストール→Docker/nvidia-container-toolkit
   3. Step6-8: NFS(`tank/pic_tank`)/SSD(`ssd-thin`)マウント→Immich docker-compose起動
 - **注意中の問題 (最大3件)**:
   1. **UPS未導入** — 本番投入前に必須 (7/20 実停電あり、正弦波必須)
   2. **PBSクォーラム** — 2ノードでQDevice未手当て
   3. **案4事故の教訓** — このボードはIOMMUグループが粗く、SATA/NIC分離不可。PCIパススルーは慎重に (GPUのグループ15は要再確認)
+
+---
+
+## 2026-08-01 (2) VE1構築 Step2完了(VM作成)
+
+### やったこと
+- `qm create` でVE1本体を作成。VMID提案は101だったが、ユーザー判断で**100**に変更
+- スペックは`docs/ve1-immich-build.md`の提案値をそのまま採用: q35/OVMF、`scsi0`=local-zfs 32GB(`serial=VE1BOOT`,discard=on,ssd=1)、`net0`=vmbr0 tag20、6コア/RAM12GB/cpu=host、qemu-guest-agent有効
+- efidisk0・scsi0とも正常作成を確認 (`transferred ... 100.00%`のログ)
+
+### 決めたこと
+- VMIDは101→**100**に変更(ユーザー判断)。以降の手順書・記録は100で統一
+
+### 未解決・次回やること
+1. Step3: `qm set 100 -hostpci0 0000:07:00,pcie=1,x-vga=0` でGPU passthrough追加
+2. Step4: Debian 12 netinstをアタッチしOSインストール
+3. Step5以降: Docker/nvidia-container-toolkit→NFS/SSDマウント→Immich起動
+
+### 実機の状態
+- 稼働中: Node0(Proxmox)、VE2(TrueNAS `.151`、稼働中)
+- VE1(VMID=100): 作成済み(ディスク・NIC設定のみ)、GPU未接続、OS未インストール、未起動
 
 ---
 

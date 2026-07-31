@@ -117,7 +117,7 @@ lspci -nnk -s 07:00.1
 VE2 (`qm create 200 ...` → OVMF/q35/qxl→GPUパススルー時はqxl不要) の実績を踏襲。**以下のスペックは提案値。実行前にRAM/コア配分を確認すること** (Node0全体48GB、VE2に8GB割当済み)。
 
 ```bash
-qm create 101 \
+qm create 100 \
   --name ve1-frigate-immich \
   --machine q35 \
   --bios ovmf \
@@ -137,7 +137,7 @@ qm create 101 \
 - ブートディスク32GB: OSのみ (写真本体はNFS、DBはSSD側)。Debian 12 + Docker運用なら妥当な下限値、要確認
 - RAM 12GB / 6コア: Frigate検出+Immich ML+Postgres+Docker常駐分の見積もり提案。Node0はRyzen 2600 (6c/12t)のため、コアはホストと按分される点に留意
 
-VMディスク作成後、**まずISOなしで設定を確認し** (`qm config 101`)、問題なければDebian 12 netinst ISOをアタッチしてインストールへ進む。
+VMディスク作成後、**まずISOなしで設定を確認し** (`qm config 100`)、問題なければDebian 12 netinst ISOをアタッチしてインストールへ進む。
 
 ---
 
@@ -146,7 +146,7 @@ VMディスク作成後、**まずISOなしで設定を確認し** (`qm config 1
 Step 0で確認したBDF (グループ全体) を指定。`x-vga=0` はGTX1650が唯一のGPUではなくVE1内部で完結させるため (Proxmoxコンソールはserial/VNCで代替)。
 
 ```bash
-qm set 101 -hostpci0 0000:07:00,pcie=1,x-vga=0
+qm set 100 -hostpci0 0000:07:00,pcie=1,x-vga=0
 ```
 
 - `0000:07:00` (関数省略) でVGA+Audio両方を1エントリで渡す (`02:00,pcie=1` 形式、VE2のグループ14と同じ書式)
@@ -217,7 +217,7 @@ NFSエクスポートパス (`/mnt/tank/pic_tank` 等) はTrueNAS側の実際の
 
 **ホスト側 (レベルB1、停止中VMへの設定変更)**:
 ```bash
-qm set 101 -scsi1 ssd-thin:32,serial=VE1PGDATA
+qm set 100 -scsi1 ssd-thin:32,serial=VE1PGDATA
 ```
 容量32GBはPostgresメタデータ用途としては余裕のある提案値。要確認。
 
