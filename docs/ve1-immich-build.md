@@ -17,7 +17,7 @@
 | VE2 (TrueNAS) ストレージ層: プール`tank`+データセット(`pic_tank`/`cam_tank`=NFS, `doc_tank`=SMB) | ✅ 完了 |
 | SSD LVM-thin化 (`ssd-thin`, 235.12GB, Proxmoxストレージ登録済み) | ✅ 完了 (未アタッチ) |
 | GTX1650のIOMMUグループ確認 (グループ15、単独=道連れなしを実測確認済み) | ✅ 完了 (2026-08-01、`docs/iommu-groups.md`) |
-| GTX1650のホスト側ドライバ(nouveau)ブラックリスト化 | ⬜ 未実施 (Step 1、レベルC) |
+| GTX1650のホスト側ドライバ(nouveau)ブラックリスト化 | ✅ 完了 (2026-08-01、`07:00.0`/`07:00.1`とも`vfio-pci`確認済み) |
 | VE1 VM本体 | ⬜ 未作成 |
 | NFS許可アドレスの絞り込み (暫定 `192.168.20.0/24` → VE1確定IPへ) | ⬜ VE1のIP確定後に対応 |
 
@@ -107,6 +107,8 @@ lspci -nnk -s 07:00.0
 lspci -nnk -s 07:00.1
 # 両方とも "Kernel driver in use: vfio-pci" になっていること
 ```
+
+**✅ 2026-08-01実施・確認済み**: VE2を`qm shutdown 200`で正常停止 → `blacklist-nouveau.conf`/`vfio.conf`(GTX1650のみ、旧SATA/USB分`1022:43d5,1022:43c8`は案4撤回済みのため含めず)を新規作成 → `update-initramfs -u -k all && proxmox-boot-tool refresh` → `reboot` → `07:00.0`/`07:00.1`とも`Kernel driver in use: vfio-pci`を確認。VE2は`qm start 200`で再起動。
 
 ---
 

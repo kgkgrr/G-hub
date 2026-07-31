@@ -18,14 +18,40 @@
   - `ssd-thin`はまだどのVMにもアタッチしていない(VE1構築時にPostgres用ディスクとして切り出す予定)
   - VLAN20/25 の観察・一時許可が継続中
 - **GTX1650 IOMMUグループ実測完了 (2026-08-01)**: グループ15は`07:00.0`(VGA,`10de:1f82`)/`07:00.1`(Audio,`10de:10fa`)の2件のみ、道連れデバイスなし。パススルー可能と確定 (`docs/iommu-groups.md`)
+- **GTX1650 vfio-pciバインド完了 (2026-08-01)**: VE2正常停止→`blacklist-nouveau.conf`/`vfio.conf`(GTX1650のみ)新規作成→initramfs反映→reboot→`07:00.0`/`07:00.1`とも`vfio-pci`確認。VE2再起動済み。旧`vfio.conf`(案4のSATA/USB用)は`/root/backup/vfio.conf.20260724-000854`のまま復元せず
 - **次の一手 (最大3件)**:
-  1. `docs/ve1-immich-build.md` Step1: nouveauブラックリスト化+vfio-pciバインド(レベルC、要承認・reboot)
-  2. Step2以降: VE1 VM作成・GPU passthrough・OS(Debian12)構築・Docker/nvidia-container-toolkit・NFS/SSDマウント・Immich起動
-  3. VE1のIP確定後、NFS許可を暫定サブネット(`192.168.20.0/24`)からVE1のホスト単体へ絞り込み
+  1. `docs/ve1-immich-build.md` Step2: VE1 VM作成 (`qm create 101`、スペック提案値の確認含む)
+  2. Step3-5: GPU passthrough(`hostpci0`)追加→Debian12インストール→Docker/nvidia-container-toolkit
+  3. Step6-8: NFS(`tank/pic_tank`)/SSD(`ssd-thin`)マウント→Immich docker-compose起動
 - **注意中の問題 (最大3件)**:
   1. **UPS未導入** — 本番投入前に必須 (7/20 実停電あり、正弦波必須)
   2. **PBSクォーラム** — 2ノードでQDevice未手当て
   3. **案4事故の教訓** — このボードはIOMMUグループが粗く、SATA/NIC分離不可。PCIパススルーは慎重に (GPUのグループ15は要再確認)
+
+---
+
+## 2026-08-01 VE1構築 Step0-1完了(GTX1650 IOMMU実測・vfio-pciバインド)
+
+### やったこと
+- Step0: `lspci -nnk`でGTX1650のBDF確認 (`07:00.0`=VGA `10de:1f82`、`07:00.1`=Audio `10de:10fa`)。IOMMUグループ15を実測し、道連れデバイスなし(この2件のみ)を確認 → `docs/iommu-groups.md`に記録
+- Step1: `/etc/modprobe.d/vfio.conf`が存在しないことに気づき調査 → 2026-07-23の案4撤回時に`/root/backup/vfio.conf.20260724-000854`へ退避済みと判明(想定通り、復元不要と判断)。VE2(GNAS)を`qm shutdown 200`で正常停止 → `blacklist-nouveau.conf`(nouveau無効化)と`vfio.conf`(GTX1650の2ID `10de:1f82,10de:10fa`のみ。旧SATA/USB用IDは案4撤回済みのため含めず)を新規作成 → `update-initramfs -u -k all && proxmox-boot-tool refresh` → `reboot` → `07:00.0`/`07:00.1`とも`vfio-pci`確認 → `qm start 200`でVE2復帰
+
+### つまづきと解決 (次回のため)
+- 手順書のファイル内容(`blacklist nouveau`等)をコードブロックでそのまま提示したところ、ユーザーがシェルにペーストしコマンドとして実行を試みるミスが発生(実害なし、command not foundのみ)。**設定ファイルの中身を提示する際は必ず`cat > file <<'EOF' ... EOF`のヒアドキュメント形式で「実行すべきコマンド」として渡す**ことを徹底する
+- ホストの`reboot`は全VM(VE2含む)を巻き込むため、**host reboot前に稼働中VMを正常停止する**ひと手間を追加した(ZFSは電源断でも無傷だった実績はあるが、正常停止の方が望ましい)
+
+### 決めたこと
+- 退避済みの旧`vfio.conf`(案4のSATA/USB コントローラ用ID)は**復元しない**。現在のVE2は案2(ディスク単位パススルー)で稼働しており、コントローラ単位パススルーの設定は不要かつ、復元するとグループ14事故の再発リスクがある
+
+### 未解決・次回やること
+1. Step2: VE1 VM作成 (`qm create 101`、RAM/コア数等の提案値をユーザーと確認)
+2. Step3: `hostpci0`でGTX1650(グループ15、`0000:07:00`)をVE1へ追加
+3. Step4-8: OS/Docker/nvidia-container-toolkit→NFS/SSDマウント→Immich起動
+
+### 実機の状態
+- 稼働中: Node0(Proxmox, VLAN20 `.150`)、VE2(TrueNAS `.151`, 再起動済み・稼働中)
+- GTX1650(`07:00.0`/`07:00.1`): `vfio-pci`バインド済み、ホストからは使用不可(意図通り、VE1への割当待ち)
+- 未構築: VE1(VM本体はまだ未作成)、VE3〜VE6
 
 ---
 
