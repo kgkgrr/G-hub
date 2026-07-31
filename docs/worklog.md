@@ -19,10 +19,11 @@
   - VLAN20/25 の観察・一時許可が継続中
 - **GTX1650 IOMMUグループ実測完了 (2026-08-01)**: グループ15は`07:00.0`(VGA,`10de:1f82`)/`07:00.1`(Audio,`10de:10fa`)の2件のみ、道連れデバイスなし。パススルー可能と確定 (`docs/iommu-groups.md`)
 - **GTX1650 vfio-pciバインド完了 (2026-08-01)**: VE2正常停止→`blacklist-nouveau.conf`/`vfio.conf`(GTX1650のみ)新規作成→initramfs反映→reboot→`07:00.0`/`07:00.1`とも`vfio-pci`確認。VE2再起動済み。旧`vfio.conf`(案4のSATA/USB用)は`/root/backup/vfio.conf.20260724-000854`のまま復元せず
-- **VE1 VM作成完了 (2026-08-01)**: VMID=**100**(提案の101から変更)、q35/OVMF、scsi0=32GB(serial=VE1BOOT)、RAM12GB/6コア/tag20。GPU未接続・OS未インストール
+- **VE1 VM作成完了 (2026-08-01)**: VMID=**100**(提案の101から変更)、q35/OVMF、scsi0=32GB(serial=VE1BOOT)、RAM12GB/6コア/tag20
+- **VE1 GPU passthrough追加完了 (2026-08-01)**: `hostpci0: 0000:07:00,pcie=1,x-vga=0` を`qm config 100`で確認。OS未インストール・未起動
 - **次の一手 (最大3件)**:
-  1. `docs/ve1-immich-build.md` Step3: GPU passthrough(`qm set 100 -hostpci0 0000:07:00,...`)追加
-  2. Step4-5: Debian12インストール→Docker/nvidia-container-toolkit
+  1. `docs/ve1-immich-build.md` Step4: Debian 12 netinst ISOをアタッチしOSインストール
+  2. Step5: Docker/nvidia-container-toolkit導入、`nvidia-smi`でGPU認識確認
   3. Step6-8: NFS(`tank/pic_tank`)/SSD(`ssd-thin`)マウント→Immich docker-compose起動
 - **注意中の問題 (最大3件)**:
   1. **UPS未導入** — 本番投入前に必須 (7/20 実停電あり、正弦波必須)
