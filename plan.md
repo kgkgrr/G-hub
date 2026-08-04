@@ -1,6 +1,6 @@
 # ホームラボ構築計画 (Proxmox VE) — インデックス
 
-最終更新: 2026-07-21
+最終更新: 2026-08-04
 
 > **このファイルは索引と現況のみ。** 詳細は `plan/` 以下の各分冊を参照。
 > セッション開始時はこのファイルを読み、必要な分冊だけを追加で開くこと。
@@ -34,24 +34,26 @@
 
 ---
 
-## 現在の進捗 (2026-07-22)
+## 現在の進捗 (2026-08-04)
 
 ### 完了
 
-- **ネットワークフェーズ**: VLAN設計確定、RTX830 + SWX2110P-8G への設定投入・実機config確認済み。WLX222のVAP1(メイン)/VAP4(IoT)接続確認済み
+- **ネットワークフェーズ**: VLAN設計確定、RTX830 + SWX2110P-8G への設定投入・実機config確認済み。WLX222のVAP1(メイン)/VAP4(IoT)接続確認済み。**vmbr0のVLANアウェア化・ホスト管理のVLAN20移設も完了・検証済み**
 - **VLAN間フィルター**: 投入済み。VLAN20→VLAN10は`pass-log`で観察中、VLAN25のポート80/NTPは一時許可中
 - Node0のPCIE1に2.5G NIC装着済み。電源をCorsair CX450 (450W / 80+ Bronze) と確認
-- **Proxmox VE 9.2.2 インストール完了** (NVMe単体 ZFS rpool、管理IP `192.168.10.150/24`、hostname `node0.ghome.local`)。管理NICはマザーオンボード側 (nic1)。nic0はNode2直結用に温存
-- **IOMMU実測完了・6TB HDDパススルー方式を確定**: SATA (`02:00.1`) がUSB 3.1 (`02:00.0`) と同一グループ14 → **コントローラ単位パススルー + TrueNAS SCALE VM** に決定。vfio-pciバインド投入・確認済み ([`03-proxmox.md`](03-proxmox.md))
+- **Proxmox VE 9.2.2 インストール完了** (NVMe単体 ZFS rpool、管理IP `192.168.20.150/24`(VLAN20)、hostname `node0.Ghome.local`)。管理NICはマザーオンボード側 (nic1)。nic0はNode2直結用に温存
+- **IOMMU実測完了・ストレージパススルー方式を確定**: 当初のコントローラ単位パススルー(案4)は事故で撤回、**ディスク単位パススルー(案2)**へ移行。6TB HDDをVE2(TrueNAS)へ、SATA SSDはホスト側LVM-thin化 ([`03-proxmox.md`](03-proxmox.md))
 - **メモリ安定性問題を解決**: 4枚48GB構成で DDR4-2933 が不安定 → **DDR4-2400 固定** で約11時間・4周・Errors:0を確認 ([`01-hardware.md`](01-hardware.md))
-- TrueNAS SCALE 25.10.4 ISO をNode0の`local`ストレージに取得・チェックサム照合済み
+- **VE2 (TrueNAS SCALE 25.10.4) 構築完了**: 管理IP `192.168.20.151`、hostname `Gnas`。6TBプール`tank`作成、データセット`pic_tank`/`cam_tank`(NFS)・`doc_tank`(SMB)、共有・ACL設定まで完了
+- **SATA SSD (240GB) のLVM-thin化完了**: Proxmoxストレージ`ssd-thin`(235.12GB)として登録
+- **🎉 VE1 (Immich) 構築完了**: VMID=100, hostname `Ghome`, IP `192.168.20.160`。GTX1650をIOMMUグループ15単独で確認・パススルー、Debian 13、Docker+nvidia-container-toolkit、NFS(`tank/pic_tank`)・SSD(`ssd-thin`)連携、Immich起動・管理者アカウント作成まで完了 ([`docs/ve1-immich-build.md`](docs/ve1-immich-build.md))
 
 ### 次のステップ (この順序を守る)
 
-1. **`docs/disks.md` の作成** — 全ディスクのシリアル番号と役割の対応表。**まだVMを作っていない今のうちに作る**。破壊的操作時の取り違え防止の前提 (CLAUDE.md §2-4)。参考: NVMe=`PHHH92530115256B`、SATA SSD=`154778407406`、6TB HDD=`WD-WX42D369CEFE` (要 `lsblk -o NAME,SERIAL,MODEL` で正式取得)
-2. **VE2 (TrueNAS SCALE) 構築** — VM作成 → グループ14 (`02:00.0`+`02:00.1`) をRaw Device/PCIとして追加 → インストール → 6TB HDD認識確認
-3. VLANアウェアブリッジ (vmbr) 設定 — Node0はRTX830直結のため自己タグ付けが必要
-4. VE1構築 (Frigate+Immich、GTX1650パススルー)、TrueNASとのNFS連携
+1. VE1: 実写真アップロードでNFS/Postgres書き込みを確認、NFS許可アドレスをVE1単体IPへ絞り込み、再起動後の自動復旧確認
+2. VE1へFrigateを統合 (docker-compose追加、GPU共有の実測)
+3. Immichの外部公開 (Cloudflare Tunnel + Access、専用LXC)
+4. VE3 (Windows 11) / VE4 (Pi-hole LXC) / VE5 (開発用Linux) / VE6 (Hermesサンドボックス) の構築
 
 ### 未着手・保留
 
@@ -59,6 +61,7 @@
 - Node0↔Node2 の 2.5G NIC直結バックアップリンク
 - **UPS選定 (優先度↑)** — 構築中に実際の停電を経験。中古市場を継続ウォッチ
 - 10Gスイッチ (中古の出物待ち)
+- PBSクォーラム対応 (QDevice未手当て)
 
 ---
 
