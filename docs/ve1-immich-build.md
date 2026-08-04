@@ -267,17 +267,20 @@ qm set 100 -scsi1 ssd-thin:32,serial=VE1PGDATA
 ```
 容量32GBはPostgresメタデータ用途としては余裕のある提案値。要確認。
 
-**ゲスト内**: 新規ディスクを認識後、フォーマット・マウント。
+**ゲスト内**: 新規ディスクを認識後、**`lsblk -o NAME,SIZE,SERIAL`でシリアル(`VE1PGDATA`)を確認してから**フォーマット・マウントする(デバイス名`/dev/sdX`の対応は再起動で入れ替わりうるため、思い込みで叩かない)。
 
 ```bash
-lsblk  # 新規ディスク (通常 /dev/sdb) を確認
-mkfs.ext4 /dev/sdb
+lsblk -o NAME,SIZE,SERIAL  # VE1PGDATAのシリアルで対象デバイスを特定
+mkfs.ext4 /dev/sdX  # 上で確認した実際のデバイス名に置き換える
 mkdir -p /mnt/ssd-pgdata
-mount /dev/sdb /mnt/ssd-pgdata
-echo "/dev/sdb /mnt/ssd-pgdata ext4 defaults 0 2" >> /etc/fstab
+mount /dev/sdX /mnt/ssd-pgdata
+blkid /dev/sdX  # UUID取得
+echo "UUID=<取得したUUID> /mnt/ssd-pgdata ext4 defaults 0 2" >> /etc/fstab
 ```
 
-> ゲスト内の `/dev/sdb` は再起動で変わりうる。恒久化は `/dev/disk/by-uuid/` を使う方が安全 (`blkid` で確認)。
+> **恒久化は必ずUUIDを使う**(`/dev/sdX`は再起動で変わりうる)。
+
+**✅ 2026-08-04実施・確認済み**: `qm set 100 -scsi1 ssd-thin:32,serial=VE1PGDATA` でアタッチ。ゲスト内`lsblk`では**インストール時と`sda`/`sdb`の対応が入れ替わっていた**(起動時のOS本体ディスクが`sdb`に、新規追加した`VE1PGDATA`が`sda`になっていた)。シリアル(`lsblk -o NAME,SIZE,SERIAL`)で照合し`/dev/sda`と確定 → `mkfs.ext4`→マウント→UUID(`17117cb0-c2fc-46f1-90cf-87b274d3386c`)で`/etc/fstab`恒久化。既存のroot/EFI/swapエントリも元々UUID指定だったため、デバイス名の入れ替わり自体は無害だった。
 
 ---
 

@@ -24,14 +24,34 @@
 - **VE1 OSインストール完了 (2026-08-01)**: Debian 13(trixie)13.6.0。ホスト名`Ghome`、IP`192.168.20.160/24`(静的、VLAN20)、GW/DNS`192.168.20.254`。SSH到達確認済み(`ssh root@192.168.20.160`)
 - **VE1 GPU+Docker動作確認完了 (2026-08-04)**: `nvidia-driver`(dkms、要`linux-headers`)+Docker+nvidia-container-toolkit導入、`docker run --gpus all ... nvidia-smi`でコンテナからGTX1650を確認
 - **VE1 NFSマウント完了 (2026-08-04)**: `tank/pic_tank`を`/mnt/nfs/pic_tank`にマウント・fstab恒久化。root_squashで書き込み拒否→TrueNAS側`Maproot User/Group=root`で解決、書き込み確認済み
+- **VE1 SSDディスク(`ssd-thin`)アタッチ完了 (2026-08-04)**: `scsi1`=32GB(`serial=VE1PGDATA`)追加、ゲスト内でext4フォーマット・`/mnt/ssd-pgdata`にマウント・UUID恒久化済み
 - **次の一手 (最大3件)**:
-  1. `docs/ve1-immich-build.md` Step7: `ssd-thin`からPostgres用ディスクを切り出しVE1へアタッチ(要VE1シャットダウン)
-  2. Step8: Immich docker-compose起動
-  3. NFS許可アドレスの絞り込み(暫定`192.168.20.0/24`→VE1確定IP`192.168.20.160`)
+  1. `docs/ve1-immich-build.md` Step8: Immich docker-compose起動 (`configs/immich/`)
+  2. NFS許可アドレスの絞り込み(暫定`192.168.20.0/24`→VE1確定IP`192.168.20.160`)
+  3. 起動後チェックリスト(GPU認識・アップロード確認・再起動後のマウント自動復旧)の実施
 - **注意中の問題 (最大3件)**:
   1. **UPS未導入** — 本番投入前に必須 (7/20 実停電あり、正弦波必須)
   2. **PBSクォーラム** — 2ノードでQDevice未手当て
   3. **案4事故の教訓** — このボードはIOMMUグループが粗く、SATA/NIC分離不可。PCIパススルーは慎重に (GPUのグループ15は要再確認)
+
+---
+
+## 2026-08-04 (3) VE1構築 Step7完了(SSD/ssd-thinディスクアタッチ)
+
+### やったこと
+- VE1を`shutdown -h now`で正常停止 → Node0側で`qm set 100 -scsi1 ssd-thin:32,serial=VE1PGDATA`でPostgres用32GBディスクを追加 → `qm start 100`
+- ゲスト内`lsblk`で確認したところ、**起動時のディスク割り当てがインストール時と入れ替わっていた**(OS本体が`sdb`、新規追加の`VE1PGDATA`が`sda`という並び)。`lsblk -o NAME,SIZE,SERIAL`でシリアル照合し`/dev/sda`=`VE1PGDATA`と確定してから`mkfs.ext4`実行(取り違え防止)
+- `/mnt/ssd-pgdata`にマウント、UUID(`17117cb0-c2fc-46f1-90cf-87b274d3386c`)で`/etc/fstab`恒久化
+
+### つまづきと解決 (次回のため)
+- **ゲスト内のディスク名(`/dev/sda`/`sdb`)は再起動を挟むと入れ替わりうる**。今回も実際に入れ替わったが、事前にシリアルで照合していたため実害なし。逆に言えば照合を省いていたら誤ってブートディスクをフォーマットする事故になり得た。**「推測で叩かない」原則はゲストOS内のディスク操作にも適用する**
+
+### 未解決・次回やること
+1. Step8: `configs/immich/`のdocker-compose.yml/.envを配置しImmich起動
+2. NFS許可アドレスの絞り込み(暫定サブネット→VE1単体IP `192.168.20.160`)
+
+### 実機の状態
+- 稼働中: Node0(Proxmox)、VE2(TrueNAS `.151`)、VE1(`Ghome`, `192.168.20.160`) — GPU/Docker/NFS(`pic_tank`)/SSD(`/mnt/ssd-pgdata`)すべて準備完了。Immich本体は未起動
 
 ---
 
