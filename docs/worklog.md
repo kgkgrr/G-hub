@@ -25,14 +25,45 @@
 - **VE1 GPU+Docker動作確認完了 (2026-08-04)**: `nvidia-driver`(dkms、要`linux-headers`)+Docker+nvidia-container-toolkit導入、`docker run --gpus all ... nvidia-smi`でコンテナからGTX1650を確認
 - **VE1 NFSマウント完了 (2026-08-04)**: `tank/pic_tank`を`/mnt/nfs/pic_tank`にマウント・fstab恒久化。root_squashで書き込み拒否→TrueNAS側`Maproot User/Group=root`で解決、書き込み確認済み
 - **VE1 SSDディスク(`ssd-thin`)アタッチ完了 (2026-08-04)**: `scsi1`=32GB(`serial=VE1PGDATA`)追加、ゲスト内でext4フォーマット・`/mnt/ssd-pgdata`にマウント・UUID恒久化済み
+- **🎉 VE1 Immich起動完了 (2026-08-04)**: `/opt/immich`でdocker-compose起動、`http://192.168.20.160:2283`で管理者アカウント作成済み。GPUがML コンテナから認識確認済み(`docker exec ... nvidia-smi`で4096MiB)。**VE1構築の主目的(Immich)は達成**
 - **次の一手 (最大3件)**:
-  1. `docs/ve1-immich-build.md` Step8: Immich docker-compose起動 (`configs/immich/`)
+  1. Immich Web UIから実際に写真アップロードし、NFS(`pic_tank`)への書き込み・Postgresへのメタデータ保存を確認
   2. NFS許可アドレスの絞り込み(暫定`192.168.20.0/24`→VE1確定IP`192.168.20.160`)
-  3. 起動後チェックリスト(GPU認識・アップロード確認・再起動後のマウント自動復旧)の実施
+  3. VE1再起動テスト(NFS/SSDマウント・Docker自動復旧の確認)、Frigate統合は別セッションで着手
 - **注意中の問題 (最大3件)**:
   1. **UPS未導入** — 本番投入前に必須 (7/20 実停電あり、正弦波必須)
   2. **PBSクォーラム** — 2ノードでQDevice未手当て
   3. **案4事故の教訓** — このボードはIOMMUグループが粗く、SATA/NIC分離不可。PCIパススルーは慎重に (GPUのグループ15は要再確認)
+
+---
+
+## 2026-08-04 (4) 🎉 VE1構築 Step8完了・Immich起動成功
+
+### やったこと
+- `/opt/immich`に`configs/immich/docker-compose.yml`相当を配置。`.env`を`openssl rand -base64 24`でパスワード生成し作成
+- **事故**: 構文確認のつもりで`docker compose config`を実行したところ、`.env`の変数が実際の値に展開され**DB_PASSWORDが会話ログに平文で出力**された。初回起動前(Postgres未初期化)だったため、直ちに`openssl rand`で新しいパスワードを再生成して`.env`を上書きし、実害なく収束
+  - 1回目の再生成コマンドは`sed 's/.../.../ '`(区切り`/`)を使ったが、base64パスワードに`/`が含まれ`sed: unknown option to 's'`で失敗・実際には置換されていなかった。区切りを`#`に変えて再実行し成功を確認
+- `docker compose up -d`→`ghcr.io/immich-app/postgres:14`が**存在しないタグ**でpull失敗。公式リポジトリ(`github.com/immich-app/immich`)の`docker/docker-compose.yml`・`docker/hwaccel.ml.yml`を直接取得して正しいイメージ参照(`postgres:14-vectorchord0.4.3-pgvectors0.2.0@sha256:...`、`valkey:9@sha256:...`)を確認・反映
+- 再度`docker compose up -d`→全イメージpull成功・4コンテナ起動したが、**`database`コンテナがクラッシュループ**(`initdb: error: directory "/var/lib/postgresql/data" exists but is not empty`、`lost+found`が原因)。`DB_DATA_LOCATION`をマウントポイント直下(`/mnt/ssd-pgdata`)からサブディレクトリ(`/mnt/ssd-pgdata/postgres`)へ変更して解決
+- 全コンテナ`Up`確認 → `http://192.168.20.160:2283`にアクセスし**管理者アカウント作成に成功** → `docker exec immich-immich-machine-learning-1 nvidia-smi`でMLコンテナからGTX1650(4096MiB)を確認
+
+### つまづきと解決 (次回のため・重要)
+- **`docker compose config`は`.env`の変数を実際の値に展開して表示する**。秘密情報が入った`.env`がある状態で構文だけ確認したい場合は`docker compose config --quiet`を使う。今回のように誤って平文出力してしまった場合、初回起動(初期化)前なら値を再生成するだけで実害なく収束できる
+- **`sed`の区切り文字とbase64文字列の`/`は衝突する**。置換対象の値に何が入るか分からない場合は`#`等の衝突しにくい区切り文字を使う
+- **Immichの公式Postgresイメージのタグは頻繁に変わる**(バージョン管理拡張の名称変更等)。ドラフト時点の値を鵜呑みにせず、導入時に`github.com/immich-app/immich`の`docker/docker-compose.yml`・`docker/hwaccel.ml.yml`を直接取得して照合するのが確実
+- **PostgresのDB_DATA_LOCATIONはマウントポイント直下ではなくサブディレクトリを指定する**。ext4等の`lost+found`があると「非空」判定でinitdbが失敗し続ける
+
+### 決めたこと
+- `configs/immich/docker-compose.yml`・`immich.env.example`を2026-08-04時点の実機確認値(イメージ参照・DB_DATA_LOCATIONパス)に更新し、次回以降このつまずきを再現しないようにした
+
+### 未解決・次回やること
+1. 実際に写真をアップロードし、NFS(`pic_tank`)書き込み・Postgresメタデータ保存を確認
+2. NFS許可アドレスの絞り込み(暫定サブネット→VE1単体IP)
+3. VE1再起動テスト(NFS/SSDマウント・Docker自動復旧)
+4. Frigate統合、Cloudflare Tunnel外部公開は別セッションで着手
+
+### 実機の状態
+- 稼働中: Node0(Proxmox)、VE2(TrueNAS `.151`)、**VE1(`Ghome`, `192.168.20.160`) — Immich稼働中**(`immich-server`/`immich-machine-learning`/`redis`/`database`、`http://192.168.20.160:2283`)。管理者アカウント作成済み。GPU(GTX1650)・NFS(`pic_tank`)・SSD(`ssd-thin`→`/mnt/ssd-pgdata/postgres`)すべて連携動作確認済み
 
 ---
 

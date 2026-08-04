@@ -19,6 +19,9 @@
 | GTX1650のIOMMUグループ確認 (グループ15、単独=道連れなしを実測確認済み) | ✅ 完了 (2026-08-01、`docs/iommu-groups.md`) |
 | GTX1650のホスト側ドライバ(nouveau)ブラックリスト化 | ✅ 完了 (2026-08-01、`07:00.0`/`07:00.1`とも`vfio-pci`確認済み) |
 | VE1 VM本体 (VMID=100) 作成・GPU passthrough・Debian 13インストール | ✅ 完了 (2026-08-01、SSH到達確認済み) |
+| VE1 GPU(nvidia-driver)+Docker+nvidia-container-toolkit | ✅ 完了 (2026-08-04) |
+| VE1 NFSマウント(`tank/pic_tank`) + SSD(`ssd-thin`)アタッチ | ✅ 完了 (2026-08-04) |
+| **Immich起動・管理者アカウント作成** | ✅ **完了 (2026-08-04)** |
 | NFS許可アドレスの絞り込み (暫定 `192.168.20.0/24` → VE1確定IP `192.168.20.160` へ) | ⬜ 未対応 |
 
 **この手順はVE1構築が「次の一手」の筆頭になった時点 (2026-07-24 worklog) を受けて作成した。前提条件 (TrueNASストレージ・SSD LVM-thin) は満たされている。**
@@ -289,24 +292,57 @@ echo "UUID=<取得したUUID> /mnt/ssd-pgdata ext4 defaults 0 2" >> /etc/fstab
 `configs/immich/docker-compose.yml` と `configs/immich/immich.env.example` を参照。
 
 ```bash
-mkdir -p /opt/immich
-# リポジトリの configs/immich/ を /opt/immich へ配置 (git clone または scp)
-cp immich.env.example .env
-# .env を編集 (DBパスワード等の秘密情報を設定。.envはgit管理対象外)
+mkdir -p /opt/immich && cd /opt/immich
+# configs/immich/docker-compose.yml の内容をそのまま配置
+# .env は immich.env.example を元に、DB_PASSWORD は必ずVE1上で生成する (会話ログ等に貼らない)
+cat > .env <<EOF
+UPLOAD_LOCATION=/mnt/nfs/pic_tank
+DB_DATA_LOCATION=/mnt/ssd-pgdata/postgres
+TZ=Asia/Tokyo
+IMMICH_VERSION=release
+DB_USERNAME=immich
+DB_DATABASE_NAME=immich
+DB_PASSWORD=$(openssl rand -base64 24)
+EOF
+chmod 600 .env
+
+mkdir -p /mnt/ssd-pgdata/postgres  # マウントポイント直下は使えない (下記つまずき参照)
 docker compose up -d
 ```
 
 起動確認: `http://<VE1のIP>:2283` にアクセスし、初期管理者アカウント作成画面が出ることを確認。
 
+**✅ 2026-08-04実施・確認済み**: VE1で管理者アカウント作成まで完了。以下のつまずきがあった。
+
+### つまずき1: `docker compose config`が秘密情報を平文表示してしまう
+YAML構文だけ確認するつもりで`docker compose config`を実行したところ、`.env`の変数が実際の値に展開されて**DB_PASSWORDが平文で出力された**(会話ログ等に残るリスク)。この場合は**新しいパスワードを再生成してから初回起動する**(初回起動前ならPostgres初期化前なので無害に差し替え可能)。以降、構文だけ確認したい場合は `docker compose config --quiet` (エラー時のみ出力) を使う。
+
+### つまずき2: `sed`の区切り文字とbase64パスワードの`/`が衝突
+`openssl rand -base64`が生成する文字列には`/`が含まれることがあり、`sed 's/.../.../ '`(区切りが`/`)で置換しようとすると`unknown option to 's'`で失敗する。**区切り文字を`#`など衝突しない文字にする**(`sed "s#...#...#"`)。
+
+### つまずき3: 用意したイメージタグが古く`postgres:14`が見つからない
+Immichの公式Postgresイメージはタグ体系が頻繁に変わる(バージョン管理拡張の名称変更等)。ドラフト作成時点の`ghcr.io/immich-app/postgres:14`は導入時には既に存在しなかった。**公式リポジトリから直接最新のcompose定義を取得して照合する**のが確実。
+```bash
+curl -fsSL https://raw.githubusercontent.com/immich-app/immich/main/docker/docker-compose.yml -o /tmp/immich-official-compose.yml
+grep -B2 -A2 "image:" /tmp/immich-official-compose.yml
+curl -fsSL https://raw.githubusercontent.com/immich-app/immich/main/docker/hwaccel.ml.yml -o /tmp/immich-hwaccel-ml.yml
+cat /tmp/immich-hwaccel-ml.yml  # GPU(cuda)ブロックの照合用
+```
+2026-08-04時点の正しい値は `configs/immich/docker-compose.yml` に反映済み。
+
+### つまずき4: Postgresが`initdb: error: directory ... exists but is not empty`でクラッシュループ
+`DB_DATA_LOCATION`をマウントポイント直下(`/mnt/ssd-pgdata`)に向けていたため、ext4の`lost+found`がありinitdbが「空でない」と判定して失敗し続けた。**マウントポイント直下ではなく、その下にサブディレクトリ(`/mnt/ssd-pgdata/postgres`)を作ってそこを指定**して解決。
+
 ---
 
 ## 起動後チェックリスト
 
-- [ ] `docker compose ps` で全コンテナ `healthy`
-- [ ] `docker exec immich_machine_learning nvidia-smi` でGPUが見えること
+- [x] `docker compose ps` で全コンテナ `healthy`/`Up` (2026-08-04確認済み)
+- [x] `docker exec immich-immich-machine-learning-1 nvidia-smi` でGPUが見えること (2026-08-04確認済み、4096MiB認識)
+- [x] Immich Web UIで管理者アカウント作成 (2026-08-04完了)
 - [ ] Immich Web UIから写真アップロード → `/mnt/nfs/pic_tank` に実ファイルが書き込まれることを確認
-- [ ] Postgresデータが `/mnt/ssd-pgdata` に書き込まれていることを確認 (`du -sh /mnt/ssd-pgdata`)
-- [ ] VE1再起動後もNFS/SSDマウントが自動復旧すること (`/etc/fstab` の動作確認)
+- [ ] Postgresデータが `/mnt/ssd-pgdata/postgres` に書き込まれていることを確認 (`du -sh /mnt/ssd-pgdata/postgres`)
+- [ ] VE1再起動後もNFS/SSDマウント・docker-composeが自動復旧すること (`/etc/fstab` + Docker再起動ポリシーの動作確認)
 - [ ] `nvidia-smi` のVRAM使用量を実測し `plan/04-gpu-ai.md` の見積もり (Frigate導入後3GB前後) と照合、`docs/` へ記録
 
 ---

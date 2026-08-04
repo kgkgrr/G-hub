@@ -10,7 +10,7 @@
 
 | VM | 内容 | 状態 |
 |---|---|---|
-| VE1 | Frigate + Immich、GTX1650 GPUパススルー (VMID=100, hostname=`Ghome`, IP=`192.168.20.160`) | 構築中: VM作成・GPU passthrough・Debian 13インストール完了、SSH到達確認済み。Docker/NFS/Immich未 (手順: [`docs/ve1-immich-build.md`](../docs/ve1-immich-build.md)) |
+| VE1 | Frigate + Immich、GTX1650 GPUパススルー (VMID=100, hostname=`Ghome`, IP=`192.168.20.160`) | **Immich稼働中**(`http://192.168.20.160:2283`、管理者アカウント作成済み)。Frigateは未統合 (手順: [`docs/ve1-immich-build.md`](../docs/ve1-immich-build.md)) |
 | VE2 | **TrueNAS SCALE VM** (VMID=200)。6TB HDDを**ディスク単位パススルー**(案4撤回→案2)。プール`tank`+データセット3つ(`pic_tank`/`cam_tank`=NFS,`doc_tank`=SMB)・共有設定まで完了 | **ストレージ層完成**(NFS許可先はVE1確定IPへ絞り込み待ち) |
 | VE3 | Windows 11 (TPM仮想化必要) | 未着手 |
 | VE4 | Pi-hole + SYSLOG (LXC, 特権)。将来Avahi(mDNSリフレクター)も同居 | 未着手 |

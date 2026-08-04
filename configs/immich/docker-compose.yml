@@ -1,12 +1,14 @@
-# Immich docker-compose — VE1用ドラフト
+# Immich docker-compose — VE1実機で稼働確認済み (2026-08-04)
 #
 # 構成 (docs/ve1-immich-build.md 参照):
 #   - 写真/動画実体 (UPLOAD_LOCATION) → NFSマウント /mnt/nfs/pic_tank (VE2 TrueNAS: tank/pic_tank)
-#   - Postgresデータ (DB_DATA_LOCATION) → SSD (ssd-thin切り出し) マウント /mnt/ssd-pgdata
+#   - Postgresデータ (DB_DATA_LOCATION) → SSD (ssd-thin切り出し) の**サブディレクトリ** (例: /mnt/ssd-pgdata/postgres)
+#     ⚠️ マウントポイント直下は不可。ext4の lost+found が非空判定されinitdbが失敗する (2026-08-04実測)
 #   - immich-machine-learning → GTX1650をnvidia-container-toolkit経由で共有 (Frigateとの共存はplan/04-gpu-ai.md)
 #
-# 導入前に公式の最新 docker-compose.yml / hwaccel.ml.yml (https://github.com/immich-app/immich) との
-# 差分 (イメージタグ、Postgresイメージ等) を確認すること。ここでの値は骨格の参考。
+# イメージ参照(redis/database)は公式 https://github.com/immich-app/immich の
+# docker/docker-compose.yml (2026-08-04時点) から取得した値。バージョンは変わりうるので
+# 導入時に公式の最新版と差分がないか確認すること。
 
 name: immich
 
@@ -43,11 +45,11 @@ services:
               capabilities: [gpu]
 
   redis:
-    image: docker.io/valkey/valkey:8-bookworm
+    image: docker.io/valkey/valkey:9@sha256:3acc0687f2a2e1091fae6450d7842dd658c941338cf0a873ddd9e14b9e4ea4dd
     restart: unless-stopped
 
   database:
-    image: ghcr.io/immich-app/postgres:14
+    image: ghcr.io/immich-app/postgres:14-vectorchord0.4.3-pgvectors0.2.0@sha256:bcf63357191b76a916ae5eb93464d65c07511da41e3bf7a8416db519b40b1c23
     env_file:
       - .env
     environment:
