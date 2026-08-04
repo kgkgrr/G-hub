@@ -24,6 +24,7 @@
 - **同一ドライバが複数コントローラを扱う場合、ドライバ全体のブラックリストは不可**。今回 `ahci` は渡す側 (`02:00.1`) と残す側 (`09:00.2`) の両方を扱うため、`ids=` で対象を限定しつつ `softdep` で順序制御する方式が正解
 - **Windowsリテールライセンスは明示的な認証解除なしでVM移行可能**
 - **Proxmoxネイティブ NFS (ホストZFS + 特権LXC) を TrueNAS VM より優先**。レイヤーとRAMオーバーヘッドが減るため。ただしコントローラ単位のパススルーが必要になればTrueNAS VMへ回帰する → 今回は回帰条件が成立しTrueNAS VMを採用
+- **NFSのroot_squashに注意**。エクスポート先のディレクトリが`root:root`所有・755権限だと、クライアント側のroot権限はNFSサーバー側で無権限ユーザーへ格下げされ書き込みが`Permission denied`になる。単一のトラステッドな内部VMからのアクセスなら、TrueNASのNFS共有設定で`Maproot User/Group=root`を指定して回避する(VE1←→VE2 `pic_tank`で発生・解決、`docs/ve1-immich-build.md`)
 
 ---
 

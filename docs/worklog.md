@@ -23,14 +23,37 @@
 - **VE1 GPU passthrough追加完了 (2026-08-01)**: `hostpci0: 0000:07:00,pcie=1,x-vga=0` を`qm config 100`で確認
 - **VE1 OSインストール完了 (2026-08-01)**: Debian 13(trixie)13.6.0。ホスト名`Ghome`、IP`192.168.20.160/24`(静的、VLAN20)、GW/DNS`192.168.20.254`。SSH到達確認済み(`ssh root@192.168.20.160`)
 - **VE1 GPU+Docker動作確認完了 (2026-08-04)**: `nvidia-driver`(dkms、要`linux-headers`)+Docker+nvidia-container-toolkit導入、`docker run --gpus all ... nvidia-smi`でコンテナからGTX1650を確認
+- **VE1 NFSマウント完了 (2026-08-04)**: `tank/pic_tank`を`/mnt/nfs/pic_tank`にマウント・fstab恒久化。root_squashで書き込み拒否→TrueNAS側`Maproot User/Group=root`で解決、書き込み確認済み
 - **次の一手 (最大3件)**:
-  1. `docs/ve1-immich-build.md` Step6-7: NFS(`tank/pic_tank`)/SSD(`ssd-thin`)マウント
+  1. `docs/ve1-immich-build.md` Step7: `ssd-thin`からPostgres用ディスクを切り出しVE1へアタッチ(要VE1シャットダウン)
   2. Step8: Immich docker-compose起動
   3. NFS許可アドレスの絞り込み(暫定`192.168.20.0/24`→VE1確定IP`192.168.20.160`)
 - **注意中の問題 (最大3件)**:
   1. **UPS未導入** — 本番投入前に必須 (7/20 実停電あり、正弦波必須)
   2. **PBSクォーラム** — 2ノードでQDevice未手当て
   3. **案4事故の教訓** — このボードはIOMMUグループが粗く、SATA/NIC分離不可。PCIパススルーは慎重に (GPUのグループ15は要再確認)
+
+---
+
+## 2026-08-04 (2) VE1構築 Step6完了(NFSマウント、root_squash対応)
+
+### やったこと
+- `showmount -e 192.168.20.151` で実際のエクスポートパス(`/mnt/tank/pic_tank`, `/mnt/tank/cam_tank`)を確認 → 手順書のプレースホルダと一致
+- `/mnt/nfs/pic_tank`にマウント、`df -h`で5.4TB利用可能を確認、`/etc/fstab`に恒久化エントリ追加
+- 書き込みテスト(`touch`)で`Permission denied` → `pic_tank`が`root:root,755`のためNFS root_squashでVE1のroot権限が無権限ユーザーへ格下げされていたと判明
+- TrueNAS GUI (`Shares → Unix Shares (NFS) → pic_tank → Advanced Options`) で `Maproot User=root` / `Maproot Group=root` を設定 → 書き込みテスト成功
+
+### つまづきと解決 (次回のため)
+- **NFS root_squashはハマりどころ**。エクスポート先が`root:root`所有かつ非トラステッドクライアント想定の権限だと、クライアントのroot書き込みが弾かれる。単一トラステッドVMからのアクセスなら`Maproot User/Group=root`で解消できる。`plan/06-principles.md`に一般原則として記録
+- `cam_tank`(Frigate用)も同様のroot_squash設定が将来必要になる可能性が高い(未対応、Frigate統合時に要確認)
+
+### 未解決・次回やること
+1. Step7: VE1をシャットダウンし、`ssd-thin`からPostgres用ディスクを切り出してアタッチ
+2. Step8: Immich docker-compose起動
+3. NFS許可アドレスの絞り込み(暫定サブネット→VE1単体IP)
+
+### 実機の状態
+- 稼働中: Node0(Proxmox)、VE2(TrueNAS `.151`)、VE1(`Ghome`, `192.168.20.160`) — GPU+Docker動作確認済み、`tank/pic_tank`をNFSマウント・書き込み確認済み。SSD/Immichは未設定
 
 ---
 

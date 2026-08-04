@@ -253,6 +253,10 @@ echo "192.168.20.151:/mnt/tank/pic_tank /mnt/nfs/pic_tank nfs4 defaults,_netdev 
 
 NFSエクスポートパス (`/mnt/tank/pic_tank` 等) はTrueNAS側の実際のマウントポイントに合わせて確認すること (未確認、TrueNAS GUIの共有設定画面で要確認)。
 
+**✅ 2026-08-04実施・確認済み**: `showmount -e 192.168.20.151` でエクスポートパス確認 (`/mnt/tank/pic_tank`, `/mnt/tank/cam_tank`ともに`192.168.20.0/24`許可)。マウント・`df -h`で5.4TB利用可能を確認・`/etc/fstab`恒久化まで完了。
+
+**⚠️ つまずき: NFS root_squashで書き込み拒否**。`pic_tank`は`root:root, 755`権限のため、VE1のroot権限がNFS越しに無権限ユーザーへ格下げされ`touch`が`Permission denied`になった。**TrueNAS GUI (`Shares → Unix Shares (NFS) → pic_tank → Advanced Options`) で `Maproot User=root` / `Maproot Group=root` を設定して解決**(VLAN20内部限定・単一トラステッドVMからのアクセスのため許容)。書き込みテストで確認済み。
+
 ---
 
 ## Step 7: Postgres用ディスク (`ssd-thin`) の切り出し・アタッチ
