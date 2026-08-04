@@ -18,8 +18,8 @@
 | SSD LVM-thin化 (`ssd-thin`, 235.12GB, Proxmoxストレージ登録済み) | ✅ 完了 (未アタッチ) |
 | GTX1650のIOMMUグループ確認 (グループ15、単独=道連れなしを実測確認済み) | ✅ 完了 (2026-08-01、`docs/iommu-groups.md`) |
 | GTX1650のホスト側ドライバ(nouveau)ブラックリスト化 | ✅ 完了 (2026-08-01、`07:00.0`/`07:00.1`とも`vfio-pci`確認済み) |
-| VE1 VM本体 | ⬜ 未作成 |
-| NFS許可アドレスの絞り込み (暫定 `192.168.20.0/24` → VE1確定IPへ) | ⬜ VE1のIP確定後に対応 |
+| VE1 VM本体 (VMID=100) 作成・GPU passthrough・Debian 13インストール | ✅ 完了 (2026-08-01、SSH到達確認済み) |
+| NFS許可アドレスの絞り込み (暫定 `192.168.20.0/24` → VE1確定IP `192.168.20.160` へ) | ⬜ 未対応 |
 
 **この手順はVE1構築が「次の一手」の筆頭になった時点 (2026-07-24 worklog) を受けて作成した。前提条件 (TrueNASストレージ・SSD LVM-thin) は満たされている。**
 
@@ -158,7 +158,43 @@ qm set 100 -hostpci0 0000:07:00,pcie=1,x-vga=0
 
 ## Step 4: ゲストOSインストール
 
-**Debian 12 (bookworm) を推奨。** 理由: `nvidia-container-toolkit` の公式サポート対象であり、Frigate/Immich公式ドキュメントでの動作実績が豊富。GUIは不要 (netinst、SSH有効化のみ)。
+**Debian (netinst、`current`が指す最新安定版)を使用。** 理由: `nvidia-container-toolkit` の公式サポート対象であり、Frigate/Immich公式ドキュメントでの動作実績が豊富。GUIは不要 (netinst、SSH有効化のみ)。
+
+**✅ 2026-08-01実施・確認済み**: 実際にダウンロードされたのは **Debian 13 (trixie) 13.6.0**(`current`シンボリックリンクが指す現行安定版。当初想定の12は既にoldstable)。以下の点でつまずいたので記録する。
+
+### つまずき1: q35+OVMFで`ide2`のCD-ROMがブート認識されない
+`qm set 100 -ide2 local:iso/...,media=cdrom` + `-boot order='ide2;scsi0;net0'` で起動すると、OVMFのブートマネージャがPXE/HTTPネットワークブートまで試して**CD-ROMを一切ブート候補に出さない**。`qm config`上は正しく設定されているにもかかわらず認識されない、q35+OVMFの既知の挙動。
+**対処**: CD-ROMを`ide2`ではなく**`scsi1`**(SCSIバス)に繋ぎ直したところ認識された。
+```bash
+qm stop 100
+qm set 100 -delete ide2
+qm set 100 -scsi1 local:iso/<ファイル名>,media=cdrom
+qm set 100 -boot order='scsi1;scsi0;net0'
+qm start 100
+```
+
+### つまずき2: インストール完了後、CD-ROMを外そうとしてもホットアンプラグ拒否
+稼働中VMから`qm set 100 -delete scsi1`を実行すると `hotplug problem - can't unplug bootdisk 'scsi1'` で失敗する(その時点でまだブートディスク扱いのため)。**`-boot order`を先に`scsi0;net0`へ変更しておけば、CD-ROMが挿さったままでも次回起動は正しくディスクから立ち上がる**ため実害はない。確実に外したい場合は `qm stop 100` で完全停止してから削除する。
+
+### つまずき3: noVNCコンソールへのペーストができない/表示が更新されないことがある
+noVNCはCtrl+Vでの直接貼り付けに対応していない。コンソール左端の`>>`タブ(クリップボードパネル)を使うか、短いコマンドは直接キーボード入力する。また、VM再起動を挟むと画面表示が古いフレームのまま見えることがあるため、**コンソールの見た目だけで判断せず、`ping`や`qm status`など別経路で実際の状態を確認する**こと。
+
+### 最終的なインストール設定
+| 項目 | 値 |
+|---|---|
+| ホスト名 | `Ghome` (意図的に選択。ドメインは`Ghome.local`) |
+| IPアドレス | `192.168.20.160/24` (静的、VLAN20) |
+| ゲートウェイ/DNS | `192.168.20.254` |
+| パーティション | Guided・ディスク全体・LVM無し (ESP 1GB / ext4 31.6GB / swap 1.8GB) |
+| ソフトウェア選択 | デスクトップ環境オフ、`SSH サーバ`+`標準システムユーティリティ`のみ |
+
+### つまずき4: SSHでrootログインできない (パスワード認証拒否)
+Debianのデフォルト`sshd_config`は`PermitRootLogin prohibit-password`相当(コメントアウトされたデフォルト値)で、**パスワードでのrootログインを拒否**する。VLAN20内部限定運用のため許容し、以下で変更した。
+```bash
+sed -i 's/^#\?PermitRootLogin.*/PermitRootLogin yes/i' /etc/ssh/sshd_config
+systemctl restart ssh
+```
+(このVMは内部管理用途のみで外部公開しない前提。将来Immichを公開する際もCloudflare Tunnel経由でVE1本体は直接晒さない方針 `plan/03-proxmox.md`)
 
 インストール後の最小設定:
 ```bash

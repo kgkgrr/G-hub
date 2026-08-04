@@ -20,15 +20,51 @@
 - **GTX1650 IOMMUグループ実測完了 (2026-08-01)**: グループ15は`07:00.0`(VGA,`10de:1f82`)/`07:00.1`(Audio,`10de:10fa`)の2件のみ、道連れデバイスなし。パススルー可能と確定 (`docs/iommu-groups.md`)
 - **GTX1650 vfio-pciバインド完了 (2026-08-01)**: VE2正常停止→`blacklist-nouveau.conf`/`vfio.conf`(GTX1650のみ)新規作成→initramfs反映→reboot→`07:00.0`/`07:00.1`とも`vfio-pci`確認。VE2再起動済み。旧`vfio.conf`(案4のSATA/USB用)は`/root/backup/vfio.conf.20260724-000854`のまま復元せず
 - **VE1 VM作成完了 (2026-08-01)**: VMID=**100**(提案の101から変更)、q35/OVMF、scsi0=32GB(serial=VE1BOOT)、RAM12GB/6コア/tag20
-- **VE1 GPU passthrough追加完了 (2026-08-01)**: `hostpci0: 0000:07:00,pcie=1,x-vga=0` を`qm config 100`で確認。OS未インストール・未起動
+- **VE1 GPU passthrough追加完了 (2026-08-01)**: `hostpci0: 0000:07:00,pcie=1,x-vga=0` を`qm config 100`で確認
+- **VE1 OSインストール完了 (2026-08-01)**: Debian 13(trixie)13.6.0。ホスト名`Ghome`、IP`192.168.20.160/24`(静的、VLAN20)、GW/DNS`192.168.20.254`。SSH到達確認済み(`ssh root@192.168.20.160`)
 - **次の一手 (最大3件)**:
-  1. `docs/ve1-immich-build.md` Step4: Debian 12 netinst ISOをアタッチしOSインストール
-  2. Step5: Docker/nvidia-container-toolkit導入、`nvidia-smi`でGPU認識確認
-  3. Step6-8: NFS(`tank/pic_tank`)/SSD(`ssd-thin`)マウント→Immich docker-compose起動
+  1. `docs/ve1-immich-build.md` Step5: NVIDIAドライバ+Docker+nvidia-container-toolkit導入、`nvidia-smi`でGPU認識確認
+  2. Step6-7: NFS(`tank/pic_tank`)/SSD(`ssd-thin`)マウント
+  3. Step8: Immich docker-compose起動
 - **注意中の問題 (最大3件)**:
   1. **UPS未導入** — 本番投入前に必須 (7/20 実停電あり、正弦波必須)
   2. **PBSクォーラム** — 2ノードでQDevice未手当て
   3. **案4事故の教訓** — このボードはIOMMUグループが粗く、SATA/NIC分離不可。PCIパススルーは慎重に (GPUのグループ15は要再確認)
+
+---
+
+## 2026-08-01 (3) VE1構築 Step4完了(Debian 13インストール、SSH到達確認)
+
+### やったこと
+- `qm set 100 -hostpci0 0000:07:00,pcie=1,x-vga=0` 実行、`qm config`で反映確認 (Step3完了)
+- Debian netinst ISOをダウンロード → 実際は`current`が指す**Debian 13(trixie)13.6.0**だった(当初想定の12は既にoldstable)
+- `vga=qxl`設定→`ide2`にISOアタッチ→`boot order=ide2;scsi0;net0`で起動したが、**q35+OVMFでCD-ROMがブート候補に出ずPXE/HTTPブートへ流れる**事象が発生
+- CD-ROMを`ide2`から**`scsi1`**へ繋ぎ直し(`qm stop`→`-delete ide2`→`-scsi1 ...,media=cdrom`→`-boot order=scsi1;scsi0;net0`→`qm start`)で解決、インストーラ起動を確認
+- ガイドパーティショニング(LVM無し、ディスク全体)、ソフトウェア選択(デスクトップ環境オフ、SSHサーバ+標準システムユーティリティのみ)でインストール実施
+- インストール完了後、稼働中VMから`scsi1`をホットアンプラグしようとして`hotplug problem`で失敗 → **`-boot order`を`scsi0;net0`に変更していれば実害無し**と判断しそのまま続行
+- reboot後、noVNCコンソールの表示が更新されておらず「インストーラが再起動した」ように見えて混乱 → `qm status`/`ping`など別経路で確認したところ実際は正常起動していた(コンソール描画の問題)。最終的に`qm stop`→`qm start`で確実にクリーン起動させ、ログインプロンプト到達を確認
+- SSHログインを試みたところrootパスワードをユーザーが失念 → コンソールから`passwd root`で再設定
+- SSHは`PermitRootLogin`のデフォルト(`prohibit-password`)によりパスワード認証拒否 → `sed`で`PermitRootLogin yes`に変更(1回目は`Rootlogin`と大文字小文字を打ち間違えてマッチ失敗、`/i`オプション付きで再実行し解決)→ `systemctl restart ssh` → SSHログイン成功
+
+### つまづきと解決 (次回のため・重要)
+- **q35+OVMFではide2のCD-ROMがブートエントリとして認識されないことがある。SCSIバス(`scsi1`等)に繋ぐ方が確実**
+- **稼働中VMのブートディスク扱いのデバイスはホットアンプラグ拒否される。`-boot order`変更で優先度を下げれば実害なく次回起動に進める**。確実に外すにはVM完全停止後に削除
+- **noVNCコンソールはCtrl+Vペースト不可**(左端のクリップボードパネル使用 or 直接キー入力)。**VM再起動を挟むと表示が古いフレームのまま固まることがある**ため、コンソールの見た目だけで状態判断せず`qm status`/`ping`等で裏取りする
+- **手打ちコマンドは大文字小文字の打ち間違いに注意**。`sed`の置換パターンでは`/i`(case-insensitive)フラグを付けておくと事故が減る
+- Debianのデフォルト`sshd_config`は`PermitRootLogin prohibit-password`相当でパスワードでのrootログインを拒否する。内部限定VLANでの運用のため`yes`に変更(外部公開はしない前提)
+
+### 決めたこと
+- VE1のホスト名は**`Ghome`**(ユーザーが意図的に選択、`ve1`ではない)
+- VE1のIPは**`192.168.20.160/24`**で確定
+
+### 未解決・次回やること
+1. Step5: NVIDIAドライバ+Docker+nvidia-container-toolkit導入(ゲスト内)
+2. Step6-7: NFS(`tank/pic_tank`)/SSD(`ssd-thin`)マウント
+3. Step8: Immich docker-compose起動
+
+### 実機の状態
+- 稼働中: Node0(Proxmox)、VE2(TrueNAS `.151`)、**VE1(`Ghome`, `192.168.20.160`, VMID=100)** — Debian 13、SSH到達可能、GPU/Docker/NFS/Immichは未設定
+- Proxmoxストレージ: `ssd-thin`(LVM-Thin, 235.12GB)まだ未アタッチ
 
 ---
 
