@@ -22,14 +22,36 @@
 - **VE1 VM作成完了 (2026-08-01)**: VMID=**100**(提案の101から変更)、q35/OVMF、scsi0=32GB(serial=VE1BOOT)、RAM12GB/6コア/tag20
 - **VE1 GPU passthrough追加完了 (2026-08-01)**: `hostpci0: 0000:07:00,pcie=1,x-vga=0` を`qm config 100`で確認
 - **VE1 OSインストール完了 (2026-08-01)**: Debian 13(trixie)13.6.0。ホスト名`Ghome`、IP`192.168.20.160/24`(静的、VLAN20)、GW/DNS`192.168.20.254`。SSH到達確認済み(`ssh root@192.168.20.160`)
+- **VE1 GPU+Docker動作確認完了 (2026-08-04)**: `nvidia-driver`(dkms、要`linux-headers`)+Docker+nvidia-container-toolkit導入、`docker run --gpus all ... nvidia-smi`でコンテナからGTX1650を確認
 - **次の一手 (最大3件)**:
-  1. `docs/ve1-immich-build.md` Step5: NVIDIAドライバ+Docker+nvidia-container-toolkit導入、`nvidia-smi`でGPU認識確認
-  2. Step6-7: NFS(`tank/pic_tank`)/SSD(`ssd-thin`)マウント
-  3. Step8: Immich docker-compose起動
+  1. `docs/ve1-immich-build.md` Step6-7: NFS(`tank/pic_tank`)/SSD(`ssd-thin`)マウント
+  2. Step8: Immich docker-compose起動
+  3. NFS許可アドレスの絞り込み(暫定`192.168.20.0/24`→VE1確定IP`192.168.20.160`)
 - **注意中の問題 (最大3件)**:
   1. **UPS未導入** — 本番投入前に必須 (7/20 実停電あり、正弦波必須)
   2. **PBSクォーラム** — 2ノードでQDevice未手当て
   3. **案4事故の教訓** — このボードはIOMMUグループが粗く、SATA/NIC分離不可。PCIパススルーは慎重に (GPUのグループ15は要再確認)
+
+---
+
+## 2026-08-04 VE1構築 Step5完了(GPU+Docker+nvidia-container-toolkit)
+
+### やったこと
+- SSH経由の作業に移行。まず`apt install -y linux-headers-$(uname -r)`未実施のまま`nvidia-driver`を入れた結果`nvidia-smi`が失敗 → `dkms status`で`added`止まり(ビルド未完了)と判明 → `linux-headers`導入+`dkms autoinstall`でビルドし直し、`nvidia-smi`でGTX1650(4096MiB)認識を確認
+- Docker/nvidia-container-toolkit導入コマンドを実行したところ`curl`/`gpg`が無く失敗 → Step4の「インストール後の最小設定」(`curl gnupg2 ca-certificates nfs-common`)を未実施だったことが判明、導入して解決
+- `docker run --rm --gpus all nvidia/cuda:12.4.1-base-ubuntu22.04 nvidia-smi` でコンテナ内からGPU認識を確認
+
+### つまづきと解決 (次回のため)
+- **`nvidia-driver`をdkmsでビルドするには`linux-headers-$(uname -r)`が必須**。無いと`dkms status`が`added`のまま`installed`にならず、`nvidia-smi`が「ドライバと通信できない」エラーになる
+- **手順書の「インストール後の最小設定」(curl等の導入)を飛ばして先のステップに進んでしまうと、後工程でまとめてエラーになる**。手順の順序通りに進めることの重要性を再確認
+
+### 未解決・次回やること
+1. Step6: NFS(`tank/pic_tank`)を`/mnt/nfs/pic_tank`へマウント。実際のエクスポートパスは`showmount -e 192.168.20.151`で確認する(手順書のパスは未確認のプレースホルダ)
+2. Step7: `ssd-thin`からPostgres用ディスクを切り出しVE1へアタッチ
+3. Step8: Immich docker-compose起動
+
+### 実機の状態
+- 稼働中: Node0(Proxmox)、VE2(TrueNAS `.151`)、VE1(`Ghome`, `192.168.20.160`) — Debian13、NVIDIAドライバ+Docker+nvidia-container-toolkit導入済み・GPU認識確認済み。NFS/SSD/Immichは未設定
 
 ---
 

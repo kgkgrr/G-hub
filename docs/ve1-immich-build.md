@@ -233,6 +233,10 @@ docker run --rm --gpus all nvidia/cuda:12.4.1-base-ubuntu22.04 nvidia-smi
 
 > パッケージ名・リポジトリURLは2026-01時点の情報。実行時に [NVIDIA公式](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html) の最新手順と差分がないか確認すること。
 
+**✅ 2026-08-04実施・確認済み**: `docker run --rm --gpus all nvidia/cuda:12.4.1-base-ubuntu22.04 nvidia-smi` でコンテナ内からGTX1650(4096MiB VRAM)を確認。つまずいた点:
+- `curl`/`gnupg2`が未インストールだった(Step4の「インストール後の最小設定」を未実施だったため)。先に`apt install -y curl gnupg2 ca-certificates nfs-common`が必要
+- `nvidia-driver`インストール直後は`nvidia-smi`が失敗。原因は**`linux-headers-$(uname -r)`が入っておらずdkmsがカーネルモジュールをビルドできていなかった**(`dkms status`が`added`止まり)。`apt install -y linux-headers-$(uname -r) && dkms autoinstall`でビルドし直して解決
+
 ---
 
 ## Step 6: NFSマウント (`tank/pic_tank`)
