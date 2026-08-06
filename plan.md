@@ -1,6 +1,6 @@
 # ホームラボ構築計画 (Proxmox VE) — インデックス
 
-最終更新: 2026-08-04
+最終更新: 2026-08-06
 
 > **このファイルは索引と現況のみ。** 詳細は `plan/` 以下の各分冊を参照。
 > セッション開始時はこのファイルを読み、必要な分冊だけを追加で開くこと。
@@ -46,12 +46,12 @@
 - **メモリ安定性問題を解決**: 4枚48GB構成で DDR4-2933 が不安定 → **DDR4-2400 固定** で約11時間・4周・Errors:0を確認 ([`01-hardware.md`](01-hardware.md))
 - **VE2 (TrueNAS SCALE 25.10.4) 構築完了**: 管理IP `192.168.20.151`、hostname `Gnas`。6TBプール`tank`作成、データセット`pic_tank`/`cam_tank`(NFS)・`doc_tank`(SMB)、共有・ACL設定まで完了
 - **SATA SSD (240GB) のLVM-thin化完了**: Proxmoxストレージ`ssd-thin`(235.12GB)として登録
-- **🎉 VE1 (Immich) 構築完了**: VMID=100, hostname `Ghome`, IP `192.168.20.160`。GTX1650をIOMMUグループ15単独で確認・パススルー、Debian 13、Docker+nvidia-container-toolkit、NFS(`tank/pic_tank`)・SSD(`ssd-thin`)連携、Immich起動・管理者アカウント作成まで完了 ([`docs/ve1-immich-build.md`](docs/ve1-immich-build.md))
+- **🎉 VE1 (Immich) 構築完了・動作確認済み**: VMID=100, hostname `Ghome`, IP `192.168.20.160`。GTX1650をIOMMUグループ15単独で確認・パススルー、Debian 13、Docker+nvidia-container-toolkit、NFS(`tank/pic_tank`)・SSD(`ssd-thin`)連携、Immich起動・管理者アカウント作成・**初回写真アップロードでNFS/Postgres書き込みをエンドツーエンドで確認済み** ([`docs/ve1-immich-build.md`](docs/ve1-immich-build.md))
 
 ### 次のステップ (この順序を守る)
 
-1. VE1: 実写真アップロードでNFS/Postgres書き込みを確認、NFS許可アドレスをVE1単体IPへ絞り込み、再起動後の自動復旧確認
-2. VE1へFrigateを統合 (docker-compose追加、GPU共有の実測)
+1. NFS許可アドレスをVE1確定IP(`192.168.20.160`)へ絞り込み、VE1再起動後の自動復旧確認
+2. VE1へFrigateを統合 (カメラ機材の準備待ちのため保留中、着手時期未定)
 3. Immichの外部公開 (Cloudflare Tunnel + Access、専用LXC)
 4. VE3 (Windows 11) / VE4 (Pi-hole LXC) / VE5 (開発用Linux) / VE6 (Hermesサンドボックス) の構築
 

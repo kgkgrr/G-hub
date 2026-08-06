@@ -340,8 +340,8 @@ cat /tmp/immich-hwaccel-ml.yml  # GPU(cuda)ブロックの照合用
 - [x] `docker compose ps` で全コンテナ `healthy`/`Up` (2026-08-04確認済み)
 - [x] `docker exec immich-immich-machine-learning-1 nvidia-smi` でGPUが見えること (2026-08-04確認済み、4096MiB認識)
 - [x] Immich Web UIで管理者アカウント作成 (2026-08-04完了)
-- [ ] Immich Web UIから写真アップロード → `/mnt/nfs/pic_tank` に実ファイルが書き込まれることを確認
-- [ ] Postgresデータが `/mnt/ssd-pgdata/postgres` に書き込まれていることを確認 (`du -sh /mnt/ssd-pgdata/postgres`)
+- [x] Immich Web UIから写真アップロード → `/mnt/nfs/pic_tank` に実ファイルが書き込まれることを確認 (2026-08-06、`IMG_0473.JPG`。**現行Immichは`library/`ではなく`upload/<ownerId>/<checksum先頭>/.../<uuid>.拡張子`形式で原本を保持する**仕様。DBの`originalPath`と実ファイルパスの一致、`asset`テーブルのチェックサム/thumbhash記録まで確認済み)
+- [x] Postgresデータが `/mnt/ssd-pgdata/postgres` に書き込まれていることを確認 (2026-08-06、`asset`テーブルにメタデータ記録済み)
 - [ ] VE1再起動後もNFS/SSDマウント・docker-composeが自動復旧すること (`/etc/fstab` + Docker再起動ポリシーの動作確認)
 - [ ] `nvidia-smi` のVRAM使用量を実測し `plan/04-gpu-ai.md` の見積もり (Frigate導入後3GB前後) と照合、`docs/` へ記録
 

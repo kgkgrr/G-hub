@@ -26,14 +26,33 @@
 - **VE1 NFSマウント完了 (2026-08-04)**: `tank/pic_tank`を`/mnt/nfs/pic_tank`にマウント・fstab恒久化。root_squashで書き込み拒否→TrueNAS側`Maproot User/Group=root`で解決、書き込み確認済み
 - **VE1 SSDディスク(`ssd-thin`)アタッチ完了 (2026-08-04)**: `scsi1`=32GB(`serial=VE1PGDATA`)追加、ゲスト内でext4フォーマット・`/mnt/ssd-pgdata`にマウント・UUID恒久化済み
 - **🎉 VE1 Immich起動完了 (2026-08-04)**: `/opt/immich`でdocker-compose起動、`http://192.168.20.160:2283`で管理者アカウント作成済み。GPUがML コンテナから認識確認済み(`docker exec ... nvidia-smi`で4096MiB)。**VE1構築の主目的(Immich)は達成**
+- **✅ 初回アップロード動作確認完了 (2026-08-06)**: Web UIから`IMG_0473.JPG`アップロード → NFS(`pic_tank/upload/...`)・Postgres(`asset`テーブル)とも書き込み確認。**VE1のImmichはエンドツーエンドで動作確認済み**
 - **次の一手 (最大3件)**:
-  1. Immich Web UIから実際に写真アップロードし、NFS(`pic_tank`)への書き込み・Postgresへのメタデータ保存を確認
-  2. NFS許可アドレスの絞り込み(暫定`192.168.20.0/24`→VE1確定IP`192.168.20.160`)
-  3. VE1再起動テスト(NFS/SSDマウント・Docker自動復旧の確認)、Frigate統合は別セッションで着手
+  1. NFS許可アドレスの絞り込み(暫定`192.168.20.0/24`→VE1確定IP`192.168.20.160`)
+  2. VE1再起動テスト(NFS/SSDマウント・Docker自動復旧の確認)
+  3. Frigate統合(カメラ準備待ち、着手時期未定)・Cloudflare Tunnel外部公開は別セッションで着手
 - **注意中の問題 (最大3件)**:
   1. **UPS未導入** — 本番投入前に必須 (7/20 実停電あり、正弦波必須)
   2. **PBSクォーラム** — 2ノードでQDevice未手当て
   3. **案4事故の教訓** — このボードはIOMMUグループが粗く、SATA/NIC分離不可。PCIパススルーは慎重に (GPUのグループ15は要再確認)
+
+---
+
+## 2026-08-06 VE1 Immich初回アップロード動作確認完了
+
+### やったこと
+- Immich Web UI (`http://192.168.20.160:2283`) から`IMG_0473.JPG`をアップロード
+- `find /mnt/nfs/pic_tank/library -type f` では実ファイルが見つからず一時混乱 → DB(`asset`テーブル)の`originalPath`を確認したところ`upload/<ownerId>/<checksum先頭2桁>/<次2桁>/<uuid>.拡張子`形式で、実際には`library/`ではなく`upload/`配下に原本が保持される仕様と判明。実ファイルパスとDBの`originalPath`が一致することを確認
+- `asset`テーブルにチェックサム・解像度(1535×2729)・thumbhash等のメタデータが記録されていることを確認 → NFS書き込み・Postgres書き込み・サムネイル生成(ML)まで一通り正常動作
+
+### つまづきと解決 (次回のため)
+- **現行Immichのストレージレイアウトは`library/`ではなく`upload/<ownerId>/<checksumの先頭バイト2桁ずつ>/<uuid>.拡張子`**。ストレージテンプレート機能(旧来の`library/`整理)は既定で無効。「`library/`が空=異常」ではない点に注意(バージョンで仕様が変わりうるので、疑わしい時はDBの`originalPath`列で実体パスを確認するのが確実)
+
+### 決めたこと
+- Frigate統合は**カメラ機材の準備待ちのため保留**。着手時期は未定、次はNFS許可の絞り込みとVE1再起動テストを優先する
+
+### 実機の状態
+- 稼働中: Node0(Proxmox)、VE2(TrueNAS `.151`)、VE1(`Ghome`, `192.168.20.160`) — **Immich稼働中・エンドツーエンド動作確認済み**(アップロード→NFS保存→Postgresメタデータ→サムネイル生成)
 
 ---
 
