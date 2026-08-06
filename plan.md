@@ -51,9 +51,10 @@
 ### 次のステップ (この順序を守る)
 
 1. NFS許可アドレスをVE1確定IP(`192.168.20.160`)へ絞り込み、VE1再起動後の自動復旧確認
-2. VE1へFrigateを統合 (カメラ機材の準備待ちのため保留中、着手時期未定)
-3. Immichの外部公開 (Cloudflare Tunnel + Access、専用LXC)
-4. VE3 (Windows 11) / VE4 (Pi-hole LXC) / VE5 (開発用Linux) / VE6 (Hermesサンドボックス) の構築
+2. **Node2 (バックアップノード) 構築** — Dynabook R741にProxmox Backup Server導入 → 玄人志向2台挿しドックで6TB(新品)+3TB(中古)を接続 → 6TBをZFSプール化しTrueNASのReplication Task受け先に、3TBをPBSデータストアに設定 (決定事項: `01-hardware.md`)。**写真データがディスク単体障害から無防備な状態を解消する優先度の高いタスク**
+3. VE1へFrigateを統合 (カメラ機材の準備待ちのため保留中、着手時期未定)
+4. Immichの外部公開 (Cloudflare Tunnel + Access、専用LXC)
+5. VE3 (Windows 11) / VE4 (Pi-hole LXC) / VE5 (開発用Linux) / VE6 (Hermesサンドボックス) の構築
 
 ### 未着手・保留
 

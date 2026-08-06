@@ -135,9 +135,12 @@ VLANアウェア化＋ホスト管理のVLAN20移設を実施・検証済み。�
 
 | Tier | 内容 |
 |---|---|
-| Tier 1 | ZFSスナップショット (`zfs-auto-snapshot` または cron) |
-| Tier 2 | (検討中) |
-| Tier 3 | Node2 (PBS) → 6TB USB HDD |
+| Tier 1 | ZFSスナップショット (`zfs-auto-snapshot` または cron)。VE2の`tank`上で運用 |
+| Tier 2 | **Node2への ZFS Replication (`tank/pic_tank` + `tank/doc_tank` → Node2の6TB新品HDD)**。決定: `01-hardware.md` 参照。**未構築** |
+| Tier 3 | Node2 (PBS) → 3TB中古HDD。Node0上のVM/LXC構成・ブートディスクのバックアップ。**未構築** |
+
+### ⚠️ 判明した既知のギャップ (2026-08-06、解決策決定・未実施)
+VE2の6TB HDDは `qm set 200 -scsi1 /dev/disk/by-id/...,backup=0` と**意図的に`backup=0`(vzdump/PBS対象外)** で接続されている (`docs/worklog.md` 2026-07-24)。これは正しい判断ではあるが、**代わりの保護手段(Tier2のZFS Replication)がまだ実装されていない**ため、現状 `tank`(Immichの写真含む)は同一ディスク上のZFSスナップショットのみで守られており、**ディスク単体障害・盗難・火災に対しては実質無防備**。Node2構築時にTier2を実装することで解消する。
 
 ### PBSクラスタのクォーラム問題
 2ノード構成ではクォーラムが成立しない。第三の投票者として軽量なQDevice (既存ノード上のVM、またはRaspberry Pi) を用意する必要がある。**未着手**。
