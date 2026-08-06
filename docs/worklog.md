@@ -3,38 +3,41 @@
 ## 現在の状態 (毎セッション末尾に上書き更新 / 20行以内)
 
 - **稼働中**:
-  - Node0: Proxmox VE 9.2.2 (NVMe単体 ZFS rpool、**管理IP `192.168.20.150/24` VLAN20**、`node0.Ghome.local`)
-  - ネットワーク: RTX830 + SWX2110P-8G 投入済み、WLX222 VAP1/VAP4 接続確認済み
-  - **vmbr0 = VLANアウェアブリッジ化完了 (2026-07-23)**。ホスト管理をVLAN20へ移設・検証済み。DNS=`.20.254`確認済み
-- **設計の重大変更 (2026-07-23夜, 案4→案2)**:
-  - **案4(コントローラ単位PT)は実機で不可能と判明・撤回**。IOMMUグループ14は「USB+SATA」ではなく**チップセットPCIeスイッチ+配下全デバイス(両NIC含む)**。VE2へ渡した瞬間、管理NIC(`05:00.0`)ごとリセットされ**ホストがハング**(事故発生)。詳細 `docs/iommu-groups.md`
-  - **案2(ディスク単位パススルー)へ移行**: vfio解除→ホストが6TB/SSD直認識→`qm set 200 -scsiX /dev/disk/by-id/...` でVE2へ。TrueNAS GUIは維持。NVMe集約・256GB据置方針は不変
-- **VE2 (TrueNAS SCALE 25.10.4)**: **インストール完了・ネットワーク疎通OK**。管理 `192.168.20.151` (VLAN20)、hostname `Gnas`、admin=`truenas_admin`。6TBを`scsi1`でディスクPT済み(VE2内では`sda`5.46TiB)。VGA=qxl(std/OVMFで砂嵐→qxlで解決)、serial0あり
-- **VE2ストレージ層: 完成**。プール`tank`(5.46TiB, Stripe, Healthy, 暗号化なし) + データセット3つ(`pic_tank`/`cam_tank`=NFS, `doc_tank`=SMB)。SMBユーザー`kenji`/`miho`(TrueNASアクセス権限は付与せずSMBのみ)、共有グループ`G-home`(GID3002)作成、`doc_tank`のOwner Group=`G-home`でACL設定済み。NFS許可ネットワークは暫定で`192.168.20.0/24`全体(VE1のIP確定後に絞り込み予定)
-- **SMB接続テスト完了**(Mac→`kenji`/`miho`で`doc_tank`アクセスOK)
-- **SSD LVM-Thin化完了**: `/dev/sda`(SanDisk 240GB, シリアル`154778407406`)を`ディスクの消去`で初期化後、Proxmox `Disks → LVM-Thin` で Thinpool `ssd-thin`(Volume Group `ssd-thin`, 235.12GB, Proxmoxストレージとして登録済み)を作成
-- **VE1構築手順ドラフト作成済み** (`docs/ve1-immich-build.md`)。Step0 GPU IOMMU実測→Step1 nouveauブラックリスト(レベルC)→Step2 VM作成→Step3 GPU passthrough→Step4-5 OS/Docker/nvidia-container-toolkit→Step6-7 NFS/SSDマウント→Step8 Immich起動、の手順とdocker-compose雛形(`configs/immich/`)を用意。**実機未着手**(このセッションはNode0実機に触れない、ドキュメント整備のみ)
-- **中途半端な状態**:
-  - `ssd-thin`はまだどのVMにもアタッチしていない(VE1構築時にPostgres用ディスクとして切り出す予定)
-  - VLAN20/25 の観察・一時許可が継続中
-- **GTX1650 IOMMUグループ実測完了 (2026-08-01)**: グループ15は`07:00.0`(VGA,`10de:1f82`)/`07:00.1`(Audio,`10de:10fa`)の2件のみ、道連れデバイスなし。パススルー可能と確定 (`docs/iommu-groups.md`)
-- **GTX1650 vfio-pciバインド完了 (2026-08-01)**: VE2正常停止→`blacklist-nouveau.conf`/`vfio.conf`(GTX1650のみ)新規作成→initramfs反映→reboot→`07:00.0`/`07:00.1`とも`vfio-pci`確認。VE2再起動済み。旧`vfio.conf`(案4のSATA/USB用)は`/root/backup/vfio.conf.20260724-000854`のまま復元せず
-- **VE1 VM作成完了 (2026-08-01)**: VMID=**100**(提案の101から変更)、q35/OVMF、scsi0=32GB(serial=VE1BOOT)、RAM12GB/6コア/tag20
-- **VE1 GPU passthrough追加完了 (2026-08-01)**: `hostpci0: 0000:07:00,pcie=1,x-vga=0` を`qm config 100`で確認
-- **VE1 OSインストール完了 (2026-08-01)**: Debian 13(trixie)13.6.0。ホスト名`Ghome`、IP`192.168.20.160/24`(静的、VLAN20)、GW/DNS`192.168.20.254`。SSH到達確認済み(`ssh root@192.168.20.160`)
-- **VE1 GPU+Docker動作確認完了 (2026-08-04)**: `nvidia-driver`(dkms、要`linux-headers`)+Docker+nvidia-container-toolkit導入、`docker run --gpus all ... nvidia-smi`でコンテナからGTX1650を確認
-- **VE1 NFSマウント完了 (2026-08-04)**: `tank/pic_tank`を`/mnt/nfs/pic_tank`にマウント・fstab恒久化。root_squashで書き込み拒否→TrueNAS側`Maproot User/Group=root`で解決、書き込み確認済み
-- **VE1 SSDディスク(`ssd-thin`)アタッチ完了 (2026-08-04)**: `scsi1`=32GB(`serial=VE1PGDATA`)追加、ゲスト内でext4フォーマット・`/mnt/ssd-pgdata`にマウント・UUID恒久化済み
-- **🎉 VE1 Immich起動完了 (2026-08-04)**: `/opt/immich`でdocker-compose起動、`http://192.168.20.160:2283`で管理者アカウント作成済み。GPUがML コンテナから認識確認済み(`docker exec ... nvidia-smi`で4096MiB)。**VE1構築の主目的(Immich)は達成**
-- **✅ 初回アップロード動作確認完了 (2026-08-06)**: Web UIから`IMG_0473.JPG`アップロード → NFS(`pic_tank/upload/...`)・Postgres(`asset`テーブル)とも書き込み確認。**VE1のImmichはエンドツーエンドで動作確認済み**
+  - Node0: Proxmox VE 9.2.2、管理IP `192.168.20.150/24`(VLAN20、vmbr0アウェア化済み)
+  - VE2 (TrueNAS SCALE、`.151`, hostname `Gnas`): **ストレージ層完成**。プール`tank`(6TB, Stripe) + `pic_tank`/`cam_tank`(NFS)・`doc_tank`(SMB)、共有・ACL設定済み
+  - **🎉 VE1 (Immich、VMID=100, hostname `Ghome`, `.160`)**: Debian 13、GTX1650パススルー(グループ15単独確認済み)、Docker+nvidia-container-toolkit、NFS(`pic_tank`)+SSD(`ssd-thin`→`/mnt/ssd-pgdata/postgres`)連携、**Immich稼働中・初回アップロードでエンドツーエンドの動作確認済み**(`docs/ve1-immich-build.md`に詳細・つまずき集)
+  - SATA SSD 240GBは`ssd-thin`(LVM-Thin, 235.12GB)化済み、VE1のPostgres用に32GB使用中
+- **決定: Node2(バックアップノード)の構成 (2026-08-06)**: Dynabook R741、玄人志向2台挿しドックで6TB(新品・ZFS化しTrueNAS Replication先/`pic_tank`+`doc_tank`)+3TB(中古・PBSデータストア)を接続。**未構築**、詳細 `plan/01-hardware.md`
+- **中途半端な状態**: VLAN20/25の観察・一時許可が継続中
 - **次の一手 (最大3件)**:
-  1. NFS許可アドレスの絞り込み(暫定`192.168.20.0/24`→VE1確定IP`192.168.20.160`)
-  2. VE1再起動テスト(NFS/SSDマウント・Docker自動復旧の確認)
-  3. Frigate統合(カメラ準備待ち、着手時期未定)・Cloudflare Tunnel外部公開は別セッションで着手
+  1. **Node2構築**(バックアップノード) — `tank`(写真含む)が現状ディスク単体障害に無防備なギャップを解消する優先タスク
+  2. NFS許可アドレスの絞り込み(暫定`192.168.20.0/24`→VE1確定IP`192.168.20.160`)
+  3. VE1再起動テスト(NFS/SSDマウント・Docker自動復旧の確認)
 - **注意中の問題 (最大3件)**:
-  1. **UPS未導入** — 本番投入前に必須 (7/20 実停電あり、正弦波必須)
-  2. **PBSクォーラム** — 2ノードでQDevice未手当て
-  3. **案4事故の教訓** — このボードはIOMMUグループが粗く、SATA/NIC分離不可。PCIパススルーは慎重に (GPUのグループ15は要再確認)
+  1. **`tank`(写真含む)がオフホスト・バックアップ無し** — Node2構築(Tier2 ZFS Replication)まではディスク単体障害・盗難・火災に無防備 (2026-08-06判明)
+  2. **UPS未導入** — 本番投入前に必須 (7/20 実停電あり、正弦波必須)
+  3. **PBSクォーラム** — 2ノードでQDevice未手当て(Node2構築後に対応)
+
+---
+
+## 2026-08-06 (2) Storage Template見送り決定、Node2バックアップ構成を決定
+
+### やったこと
+- Immichの Storage Template機能について相談 → `library/`ではなく`upload/`配下にUUIDベースで保持する現行仕様を確認済みだったため、有効化のメリット(人間可読パス)とコスト(日付修正時のリネーム発生、Immich公式もリネーム依存を弱める傾向)を整理して提示
+- worklog記載の`qm set 200 -scsi1 ...,backup=0`を再確認し、**`tank`(写真含む)がPBSバックアップ対象外で、同一ディスク上のZFSスナップショットのみで保護されている**ことを指摘。「単騎stripe、冗長はPBS」という過去の記述との食い違いを報告
+- Node2(バックアップノード)の構成を相談。当初「6TB=PBS、3TB=写真レプリカ先」を提案したが、ユーザーの意向で**逆(6TB新品=写真レプリカ先、3TB中古=PBS)に決定**。物理接続は玄人志向の2台挿しHDDドッキングステーション
+
+### 決めたこと
+- **Storage Templateは無効のまま**。理由: `pic_tank`はNFSのみでSMB共有せず、家族が直接ファイルシステムを覗く運用を想定していない。バックアップもブロック/データセット単位(ZFSスナップショット・Replication)であり命名規則に依存しない。有効化のメリット(万一のDB損失時の手動サルベージ)は、この構成では優先度が低いと判断
+- **Node2のストレージ構成**: 6TB(新品)→ZFSプール化しTrueNAS Replication Task受け先(`pic_tank`+`doc_tank`)、3TB(中古)→PBSデータストア。**却下**: 逆の割り当て(6TB=PBS、3TB=写真)。理由: より重要(撮り直し不可)なデータには信頼性の高い新品ドライブを割り当てるべきと判断。PBSの実際の必要容量(VM設定・ブートディスク)は小さく3TBで十分
+- `cam_tank`(Frigate録画)はレプリケーション対象外のまま(容量・優先度の両面)
+
+### 未解決・次回やること
+1. Node2構築: Dynabook R741にPBSインストール → ドッキングステーションで6TB/3TB接続 → 6TBをZFSプール化 → TrueNAS側でReplication Task設定 → 3TBをPBSデータストア登録
+2. Node2構築完了まで、`tank`のオフホスト・バックアップが無い状態が続く点を認識しておく
+
+### 実機の状態
+- 変更なし(設計討議のみ、実機操作は未実施)。Node2は依然未構築
 
 ---
 
