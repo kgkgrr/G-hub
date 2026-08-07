@@ -60,3 +60,4 @@
 - **GPUリソース競合がNode0の中心的制約。** Frigate/Immich/Ollamaが常に候補として競合しうることを前提に設計する
 - **NVLinkの可否はモデルによって異なる。** 「2枚差せばVRAMが倍」は誤り
 - **VRAM要件はモデル本体だけでなくKVキャッシュを含めて見積もる。** 長コンテキストほどKVキャッシュが支配的になる
+- **GPUパススルーVMのグレースフル停止は`nvidia-persistenced`がハングしうる (2026-08-07実測)**: VE1で`qm reboot`実行時、`nvidia-persistenced`が停止処理でハングし`systemd`(PID1)ごとブロック、SSH/コンソールとも無応答になるインシデントが発生。コンシューマ向けNVIDIAカードのFLRリセット不安定が背景にある既知の問題カテゴリ。**コールドスタート(電源断相当の`qm stop`→`qm start`)はこの経路を踏まず正常復帰した**。対策として`nvidia-persistenced`を無効化(ImmichやFrigateのような常駐コンテナ中心の間欠負荷では実運用上の悪影響はほぼ無い)、かつProxmox VM設定に`startup ...,down=60`のシャットダウンタイムアウトを明示し、ハング再発時も自動でハードストップされるようにした。詳細: `docs/ve1-immich-build.md` Step 9-6

@@ -10,7 +10,7 @@
 - **決定: Node2(バックアップノード)の構成 (2026-08-06)**: Dynabook R741、玄人志向2台挿しドックで6TB(新品・ZFS化しTrueNAS Replication先/`pic_tank`+`doc_tank`)+3TB(中古・PBSデータストア)を接続。**未構築、実運用優先のため着手は後回し (2026-08-07決定)**、詳細 `plan/01-hardware.md`
 - **中途半端な状態**: VLAN20/25の観察・一時許可が継続中
 - **次の一手 (最大3件)**:
-  1. **Node0/VE1の自動復帰の堅牢化(目下最優先、2026-08-07)** — 9-0/9-1/9-2/9-4完了(①③層完了)。残るは②層(TrueNAS NFS自動起動確認)と9-5(段階的reboot検証)。`docs/ve1-immich-build.md` Step 9参照
+  1. **Node0/VE1の自動復帰の堅牢化(目下最優先、2026-08-07)** — ①②③層+GPUハング対策(9-6)まで完了、VE1単体reboot検証も成功。残るは**9-5-2: Node0ホスト全体の再起動検証**のみ。`docs/ve1-immich-build.md` Step 9参照
   2. NFS許可アドレスの絞り込み(暫定`192.168.20.0/24`→VE1確定IP`192.168.20.160`)
   3. iCloud/Google Photos初回一括投入(設計ドラフト完了 `docs/immich-bulk-import.md`、Step1のiCloudダウンロード状況確認から着手)
 - **注意中の問題 (最大3件)**:
@@ -58,6 +58,34 @@
 ### 実機の状態
 - VE1: `/etc/systemd/system/docker.service.d/override.conf` 作成・`daemon-reload`済み(③層の一部完了)
 - Node0: 誤って作成した同名ファイルは削除済み、クリーンな状態
+
+---
+
+## 2026-08-07 (7) 🔥 インシデント対応: VE1単体rebootでnvidia-persistencedハング → 特定・対策・再検証成功
+
+### やったこと
+- 9-5-1(VE1単体`qm reboot 100`、タイムアウト未指定)を実施 → **SSH・noVNCコンソールとも完全に無応答**。`qm status`は`running`、pingは通る、CPU張り付きなしという状態が10分以上継続
+- 切り分け: `qm agent 100 ping`(guest-agent未導入で不可) → `showmount -e 192.168.20.151`(Node0から、**即応答**でTrueNAS側は健全と確認) → 当初のNFSハング仮説を否定
+- **復旧**: `qm stop 100`(強制電源断)→`qm start 100`で復帰。SSH成功、`nvidia-smi`/`docker compose ps`とも正常(GPU再認識・全コンテナhealthy)を確認。コールドスタートは問題のハング経路を踏まないことを確認
+- 復旧後、`journalctl --list-boots`で前回ブート分のログが残っていることを確認し、`journalctl -b -1 | grep -iE 'nfs|rpc|hung|blocked for more than'`で根本原因を特定: **`nvidia-persistenced`(PID 786)が停止処理中にハングし、`systemd`(PID1)自体をブロックしていた**。NFS関連の停止処理自体は正常完了していたログも確認
+- Web検索でGPUパススルー環境における`nvidia-persistenced`シャットダウンハングが既知の問題カテゴリであることを確認(Proxmox/Arch Linux/NVIDIA公式の各フォーラム)。合わせてProxmoxの`qm shutdown`/`startup down=`パラメータの挙動も確認(デフォルト180秒でハードストップされるはずだが、`qm reboot`をタイムアウト指定無しで実行したため今回は効かなかったと推定)
+- 対策として (a) `qm set 100 -startup order=2,up=90,down=60` でシャットダウンタイムアウトを明示、(b) `systemctl disable --now nvidia-persistenced` でハングの引き金を除去、を実施
+- `qm reboot 100 --timeout 60` で再検証 → **正常に再起動・SSH接続成功、ハング再発せず**
+
+### 決めたこと
+- Step 9(NFS/docker.serviceの依存関係対策)は今回のインシデントとは無関係と結論。引き続き有効な対策として維持する
+- `nvidia-persistenced`は無効化のまま運用する。ImmichのML/Frigateの検出は常駐コンテナでの継続実行が中心のため、無効化による初期化遅延(GPUアイドル復帰時に数百ms〜数秒)の実運用影響はほぼ無いと判断。GTX1650はECC非搭載のためECCスクラブ絡みの恩恵も元々無い。**却下**: persistenced有効のまま`TimeoutStopSec`等でサービス単位のタイムアウトを設定する案 → 今回の"blocked"はカーネルレベルのD-state(割り込み不可能)である可能性が高く、サービスタイムアウトでは救えない可能性があるため、引き金そのものを断つ方を優先した
+- `startup ...,down=60`は無条件のセーフティネットとして維持(persistenced対策が今後別の原因でハングしても自動復旧できるように)
+- `plan/04-gpu-ai.md`の「学び」にこのインシデントを追記(GPUパススルーVMの停止処理に関する重要な知見のため)
+
+### 未解決・次回やること
+1. 9-5-2: Node0ホスト全体の再起動検証(①②③層+GPUハング対策の総合検証、全VM影響のため実施前に一声かける)
+2. NFS許可アドレスの絞り込み
+3. iCloud/Google Photos初回一括投入
+
+### 実機の状態
+- VE1: `nvidia-persistenced`無効化済み、`startup: order=2,up=90,down=60`設定済み。`qm reboot 100 --timeout 60`での再起動を確認済み、Immich全コンテナ`healthy`
+- Node0/VE2: 変更なし、稼働継続中
 
 ---
 

@@ -433,20 +433,67 @@ qm set 100 -onboot 1 -startup order=2,up=90
 2. 上記が確認できてから、**Node0ホスト全体の再起動**で 9-4 (VM起動順序)を検証する。これは全VM (VE1/VE2) に影響するため、実施前に「何をやり直すことになるか」(CLAUDE.md B2判断基準)を踏まえて確認のうえで進める
    - 確認項目: 上記に加え、`qm status 200`/`qm status 100`が自動的に`running`になっていること、手動起動が不要だったこと
 
+**⚠️ 2026-08-07実施: 9-5-1(VE1単体reboot)の1回目で重大インシデント発生 → 9-6で対処・再検証済み。詳細は下記。**
+
+### 9-6. インシデント記録: `qm reboot 100` 実行後にSSH/コンソールとも無応答 → 原因は`nvidia-persistenced`
+
+**症状**: `qm reboot 100`(タイムアウト未指定)実行後、`qm status`は`running`、pingも通るが、SSH接続不可・noVNCコンソールも`Ghome login:`表示のままキー入力を受け付けず完全に無応答。10分以上経過しても復旧せず。
+
+**切り分け**:
+- `qm agent 100 ping` → qemu-guest-agent未導入で不可(想定通り)
+- `showmount -e 192.168.20.151`(Node0から) → **即座に正常応答**。TrueNAS側のNFSは健全と確認 → NFSサーバー無応答が原因という当初の仮説は否定された
+
+**根本原因(`journalctl -b -1`で特定)**: NFS関連の停止処理(`rpcbind`, `mnt-nfs-pic_tank.mount`等)は正常に完了していたが、その直後に以下が記録されていた。
+
+```
+Aug 07 10:10:26 Ghome kernel: INFO: task systemd:1 blocked for more than 120 seconds.
+Aug 07 10:10:26 Ghome kernel: INFO: task nvidia-persiste:786 blocked for more than 120 seconds.
+```
+
+**`nvidia-persistenced`(NVIDIA GPUのpersistenceデーモン)がVM停止処理中にハングし、`systemd`(PID1)自体をブロックしていた。** GPUパススルー環境(特にFLRリセットが不安定なコンシューマ向けカード)で報告例のある既知の問題カテゴリ ([Proxmoxフォーラム](https://forum.proxmox.com/threads/pci-passthrough-vm-restart-causes-proxmox-to-crash.119097/)、[Arch Linuxフォーラム](https://bbs.archlinux.org/viewtopic.php?id=308023)、[NVIDIA公式フォーラム](https://forums.developer.nvidia.com/t/graphics-shut-down-on-ubuntu-23-04-nvidia-persistenced-receives-signal-15/267985))。GTX1650はこのカテゴリに該当しうる世代のコンシューマカード。
+
+**Step 9(NFS/docker.service関連の対策)は無罪。** 引き続き有効な対策として維持する。今回の障害はStep 9とは別種の問題だった。
+
+**復旧**: `qm reboot`/`qm shutdown`はゲスト無応答でも自動フォールバック(ハードストップ)しない場合があり(タイムアウト未指定だったため)、手動で強制電源断が必要だった。
+
+```bash
+qm stop 100   # ACPI協調を待たない強制電源断
+qm start 100  # コールドスタート
+```
+
+→ 復旧後、`nvidia-smi`でGPU認識・全docker コンテナ`healthy`を確認。**コールドスタート(電源断相当)はGPUパススルーも含めクリーンに再初期化できることを確認**。これは「Node0の電源断復帰(グレースフル停止を経ないコールドスタート)は今回のハング経路を踏まない可能性が高い」という推測の裏付けになった。ただし**計画的なNode0再起動(Proxmoxがまずゲストへグレースフル停止を試みる)では同じハングを踏むリスクが残る**。
+
+**対策 (2026-08-07実施・確認済み)**:
+
+1. **Proxmoxのシャットダウンタイムアウトを明示設定** (レベルB1、無条件に有効なセーフティネット):
+   ```bash
+   qm set 100 -startup order=2,up=90,down=60
+   ```
+   ゲストが60秒以内にグレースフル停止しなければProxmoxが自動でハードストップする。今後同種のハングが起きても手動`qm stop`が不要になる。
+2. **`nvidia-persistenced`を無効化** (レベルB1、ハングの引き金そのものを除去):
+   ```bash
+   systemctl disable --now nvidia-persistenced
+   ```
+   ImmichのML/Frigateの検出は常駐コンテナ内での継続実行が中心のため、persistenceモード無効化による初期化遅延(数百ms〜数秒、GPUがアイドルから復帰する際のみ)の実運用影響はほぼ無いと判断。GTX1650はECC非搭載のためECCスクラブ絡みの恩恵も元々無い
+3. **再検証**: `qm reboot 100 --timeout 60` → **正常に再起動・SSH接続成功を確認(2026-08-07)**。ハング再発せず
+
+**✅ 9-6完了。9-5-1(VE1単体reboot検証)も併せて実質完了とみなす**(1回目はインシデントで失敗、原因究明・対策後の2回目で成功)。
+
 ### 実行順序まとめ
 
-**9-0(確認・レベルA) → 9-1(レベルB1) → 9-2(レベルB1) → 9-4(レベルB1) → 9-5-1(VE1単体reboot検証) → 9-5-2(Node0全体reboot検証)**
+**9-0(確認・レベルA) → 9-1(レベルB1) → 9-2(レベルB1) → 9-4(レベルB1) → 9-5-1(VE1単体reboot検証) → 9-6(GPUハング対策、9-5-1の1回目失敗を受けて追加) → 9-5-2(Node0全体reboot検証)**
 
 - [x] 9-0 現状確認 (2026-08-07)
 - [x] 9-1 docker.service override (2026-08-07、Node0への誤投入からの復旧含む)
 - [x] 9-2 fstabタイムアウト追加 (2026-08-07)
-- [x] 9-4 Proxmox起動順序 (2026-08-07)
-- [ ] ②層: TrueNAS(VE2)のNFSサービス `Start Automatically` 確認 (未確認のまま)
-- [ ] 9-5-1 VE1単体reboot検証
+- [x] 9-4 Proxmox起動順序 (2026-08-07、後に9-6で`down=60`を追加)
+- [x] ②層: TrueNAS(VE2)のNFSサービス `Start Automatically` 確認 (2026-08-07、ON確認済み)
+- [x] 9-5-1 VE1単体reboot検証 (2026-08-07、1回目は`nvidia-persistenced`ハングで失敗 → 9-6の対策後の2回目で成功)
+- [x] 9-6 GPUシャットダウンハング対策 (`down=60` + `nvidia-persistenced`無効化、2026-08-07)
 - [ ] 9-5-2 Node0全体reboot検証
 
 ### 未実施
-- ②層のTrueNAS確認と、9-5の段階的reboot検証が残っている
+- 9-5-2 (Node0ホスト全体の再起動検証) が残っている。①②③層に加えGPUハング対策も含めた総合検証になる
 
 ---
 
