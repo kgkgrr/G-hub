@@ -363,7 +363,7 @@ TrueNAS(VE2) GUI側:
 - `System Settings → Services` で **NFS** の `Start Automatically` がONになっているか確認
 - (`pic_tank`のNFS共有自体は既に動作確認済みのため、通常は問題ないはずだが明示確認する)
 
-この結果を教えてもらえれば、9-4のコマンドを「現状に対する差分」として具体化する。
+**✅ 2026-08-07実施・確認済み**: `qm config 100` / `qm config 200` とも `onboot`/`startup` の出力なし = **どちらも未設定(デフォルト`onboot=0`、起動順序未指定)**。現状はNode0再起動してもVE2/VE1とも自動起動しない。→ 9-4のコマンドをそのまま(差分調整不要で)投入してよい。TrueNAS GUI側のNFSサービス自動起動設定は未確認のまま(9-4と並行して確認してよい)。
 
 ### 9-1. VE1ゲスト内: docker.serviceにNFSマウント依存を追加 (レベルB1)
 

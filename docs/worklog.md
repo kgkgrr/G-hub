@@ -10,13 +10,33 @@
 - **決定: Node2(バックアップノード)の構成 (2026-08-06)**: Dynabook R741、玄人志向2台挿しドックで6TB(新品・ZFS化しTrueNAS Replication先/`pic_tank`+`doc_tank`)+3TB(中古・PBSデータストア)を接続。**未構築、実運用優先のため着手は後回し (2026-08-07決定)**、詳細 `plan/01-hardware.md`
 - **中途半端な状態**: VLAN20/25の観察・一時許可が継続中
 - **次の一手 (最大3件)**:
-  1. **Node0/VE1の自動復帰の堅牢化(目下最優先、2026-08-07)** — 実機投入手順は `docs/ve1-immich-build.md` Step 9 にチェックリスト化済み(9-0確認→9-1/9-2→9-4→9-5検証)。まず9-0の現状確認から
+  1. **Node0/VE1の自動復帰の堅牢化(目下最優先、2026-08-07)** — 9-0確認済み(VE1/VE2とも`onboot`/`startup`未設定)。次は9-4(Proxmox起動順序`qm set`)→9-1/9-2(VE1内systemd)→9-5(段階的reboot検証)。`docs/ve1-immich-build.md` Step 9参照
   2. NFS許可アドレスの絞り込み(暫定`192.168.20.0/24`→VE1確定IP`192.168.20.160`)
   3. iCloud/Google Photos初回一括投入(設計ドラフト完了 `docs/immich-bulk-import.md`、Step1のiCloudダウンロード状況確認から着手)
 - **注意中の問題 (最大3件)**:
   1. **`tank`(写真含む)がオフホスト・バックアップ無し** — バックアップ(Node2)は実運用優先のため後回しと決定 (2026-08-07)。ディスク単体障害・盗難・火災に無防備な状態のまま運用・一括投入を進める点は既知のリスクとして許容
   2. **UPS未導入** — 本番投入前に必須 (7/20 実停電あり、正弦波必須)
   3. **PBSクォーラム** — 2ノードでQDevice未手当て(Node2構築後に対応)
+
+---
+
+## 2026-08-07 (3) Step 9-0 (現状確認) 実施: onboot/startupとも未設定と判明
+
+### やったこと
+- ユーザーがNode0上で `qm config 100 | grep -E 'onboot|startup'` / `qm config 200 | grep -E 'onboot|startup'` を実行 → **両方とも出力なし**
+
+### 決めたこと
+- 出力なし = `onboot`/`startup`とも未設定(デフォルト`onboot=0`)と判断。現状はNode0再起動してもVE2/VE1いずれも自動起動しない状態。差分調整不要で9-4のコマンド(`qm set 200 -onboot 1 -startup order=1` / `qm set 100 -onboot 1 -startup order=2,up=90`)をそのまま投入してよいと結論
+- `docs/ve1-immich-build.md` Step 9-0にこの実測結果を記録
+
+### 未解決・次回やること
+1. 9-4 (`qm set`でVE2/VE1のonboot・起動順序を設定) を実機投入
+2. TrueNAS(VE2) GUI側のNFSサービス`Start Automatically`設定はまだ未確認。9-4と並行して確認してもよい
+3. 9-1/9-2 (VE1ゲスト内、docker.serviceのNFSマウント依存・fstabタイムアウト) へ進む
+4. 9-5 (VE1単体reboot→Node0全体rebootの段階的検証)
+
+### 実機の状態
+- 変更なし(9-0の読み取り確認のみ実施)。VE1/VE2は稼働継続中
 
 ---
 
