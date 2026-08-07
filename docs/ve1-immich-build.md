@@ -403,6 +403,8 @@ grep pic_tank /etc/fstab
 systemctl daemon-reload
 ```
 
+**✅ 2026-08-07実施・確認済み**: `grep pic_tank /etc/fstab` で `192.168.20.151:/mnt/tank/pic_tank /mnt/nfs/pic_tank nfs4 defaults,_netdev,x-systemd.mount-timeout=30 0 0` を確認。9-1と合わせて**③層(VE1内systemd依存関係)は完了**。
+
 - `defaults,_netdev,x-systemd.mount-timeout=30` になっていればOK (既に`x-systemd.mount-timeout`が含まれている場合はsedがマッチせず無変化になるだけなので、再実行しても安全)
 - `soft` マウントへの変更は行わない (書き込み中の切断でデータ破損しうるため非推奨。hard mountを維持しつつ、systemd起動待ちだけタイムアウトさせる)
 - タイムアウトした場合は9-1によりdocker/Immichは起動しない → 手動で `mount -a && systemctl restart docker` の復旧が必要になる。これは意図した挙動 (自動で誤動作するより安全)
@@ -435,8 +437,16 @@ qm set 100 -onboot 1 -startup order=2,up=90
 
 **9-0(確認・レベルA) → 9-1(レベルB1) → 9-2(レベルB1) → 9-4(レベルB1) → 9-5-1(VE1単体reboot検証) → 9-5-2(Node0全体reboot検証)**
 
+- [x] 9-0 現状確認 (2026-08-07)
+- [x] 9-1 docker.service override (2026-08-07、Node0への誤投入からの復旧含む)
+- [x] 9-2 fstabタイムアウト追加 (2026-08-07)
+- [x] 9-4 Proxmox起動順序 (2026-08-07)
+- [ ] ②層: TrueNAS(VE2)のNFSサービス `Start Automatically` 確認 (未確認のまま)
+- [ ] 9-5-1 VE1単体reboot検証
+- [ ] 9-5-2 Node0全体reboot検証
+
 ### 未実施
-- 9-0〜9-4とも設計のみ。実機投入・検証はこれから (実行はユーザー本人、`docs/ve1-immich-build.md` 冒頭の役割分担のとおり)
+- ②層のTrueNAS確認と、9-5の段階的reboot検証が残っている
 
 ---
 

@@ -10,13 +10,33 @@
 - **決定: Node2(バックアップノード)の構成 (2026-08-06)**: Dynabook R741、玄人志向2台挿しドックで6TB(新品・ZFS化しTrueNAS Replication先/`pic_tank`+`doc_tank`)+3TB(中古・PBSデータストア)を接続。**未構築、実運用優先のため着手は後回し (2026-08-07決定)**、詳細 `plan/01-hardware.md`
 - **中途半端な状態**: VLAN20/25の観察・一時許可が継続中
 - **次の一手 (最大3件)**:
-  1. **Node0/VE1の自動復帰の堅牢化(目下最優先、2026-08-07)** — 9-0/9-4/9-1完了。次は9-2(`/etc/fstab`タイムアウト、VE1内)→TrueNAS NFS自動起動確認(②層)→9-5(段階的reboot検証)。`docs/ve1-immich-build.md` Step 9参照
+  1. **Node0/VE1の自動復帰の堅牢化(目下最優先、2026-08-07)** — 9-0/9-1/9-2/9-4完了(①③層完了)。残るは②層(TrueNAS NFS自動起動確認)と9-5(段階的reboot検証)。`docs/ve1-immich-build.md` Step 9参照
   2. NFS許可アドレスの絞り込み(暫定`192.168.20.0/24`→VE1確定IP`192.168.20.160`)
   3. iCloud/Google Photos初回一括投入(設計ドラフト完了 `docs/immich-bulk-import.md`、Step1のiCloudダウンロード状況確認から着手)
 - **注意中の問題 (最大3件)**:
   1. **`tank`(写真含む)がオフホスト・バックアップ無し** — バックアップ(Node2)は実運用優先のため後回しと決定 (2026-08-07)。ディスク単体障害・盗難・火災に無防備な状態のまま運用・一括投入を進める点は既知のリスクとして許容
   2. **UPS未導入** — 本番投入前に必須 (7/20 実停電あり、正弦波必須)
   3. **PBSクォーラム** — 2ノードでQDevice未手当て(Node2構築後に対応)
+
+---
+
+## 2026-08-07 (6) Step 9-2 (fstabタイムアウト) 実施・確認済み — ③層完了
+
+### やったこと
+- VE1で`/etc/fstab`の`pic_tank`行に`x-systemd.mount-timeout=30`を追加(sed、事前バックアップ`/etc/fstab.bak-*`取得済み)
+- `grep pic_tank /etc/fstab`で `192.168.20.151:/mnt/tank/pic_tank /mnt/nfs/pic_tank nfs4 defaults,_netdev,x-systemd.mount-timeout=30 0 0` を確認
+
+### 決めたこと
+- 9-1+9-2で**③層(VE1内: docker.serviceのNFSマウント依存 + マウントタイムアウト)は完了**と判断
+
+### 未解決・次回やること
+1. ②層: TrueNAS(VE2) GUI → `System Settings → Services` → NFSの`Start Automatically`確認(未着手)
+2. 9-5-1: VE1単体再起動 (`qm reboot 100`) でここまでの効果を検証
+3. 9-5-2: 検証OKならNode0全体再起動で①②③層まとめて検証
+
+### 実機の状態
+- VE1: ①(Proxmox起動順序)・③(systemd依存関係)とも設定済み。まだreboot検証は未実施
+- ②(TrueNAS NFS自動起動)は未確認のまま
 
 ---
 
