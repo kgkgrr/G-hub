@@ -8,9 +8,10 @@
   - **🎉 VE1 (Immich、VMID=100, hostname `Ghome`, `.160`)**: Debian 13、GTX1650パススルー(グループ15単独確認済み)、Docker+nvidia-container-toolkit、NFS(`pic_tank`)+SSD(`ssd-thin`→`/mnt/ssd-pgdata/postgres`)連携、**Immich稼働中・初回アップロードでエンドツーエンドの動作確認済み**(`docs/ve1-immich-build.md`に詳細・つまずき集)
   - SATA SSD 240GBは`ssd-thin`(LVM-Thin, 235.12GB)化済み、VE1のPostgres用に32GB使用中
 - **決定: Node2(バックアップノード)の構成 (2026-08-06)**: Dynabook R741、玄人志向2台挿しドックで6TB(新品・ZFS化しTrueNAS Replication先/`pic_tank`+`doc_tank`)+3TB(中古・PBSデータストア)を接続。**未構築、実運用優先のため着手は後回し (2026-08-07決定)**、詳細 `plan/01-hardware.md`
-- **中途半端な状態**: VLAN20/25の観察・一時許可が継続中
+- **中途半端な状態**: VLAN20/25の観察・一時許可が継続中。**Node0を物理移設予定(2026-08-07、9-5-2成功直後にシャットダウン→移動)** — 次回セッション開始時は移設後の疎通・VLAN確認から
+- **✅ Node0/VE1の自動復帰の堅牢化、完了 (2026-08-07)**: ①Proxmox起動順序 ②TrueNAS NFS自動起動 ③VE1内systemd依存 + GPUハング対策(nvidia-persistenced無効化・`down=60`)まで、Node0ホスト全体の再起動で実機検証済み。詳細 `docs/ve1-immich-build.md` Step 9
 - **次の一手 (最大3件)**:
-  1. **Node0/VE1の自動復帰の堅牢化(目下最優先、2026-08-07)** — ①②③層+GPUハング対策(9-6)まで完了、VE1単体reboot検証も成功。残るは**9-5-2: Node0ホスト全体の再起動検証**のみ。`docs/ve1-immich-build.md` Step 9参照
+  1. **Node0物理移設** — シャットダウン→移動→再設置後、疎通・VLANタグ・全VM自動復帰の再確認(移設先ポートのVLAN設定に要注意、`docs/worklog.md`最新エントリ参照)
   2. NFS許可アドレスの絞り込み(暫定`192.168.20.0/24`→VE1確定IP`192.168.20.160`)
   3. iCloud/Google Photos初回一括投入(設計ドラフト完了 `docs/immich-bulk-import.md`、Step1のiCloudダウンロード状況確認から着手)
 - **注意中の問題 (最大3件)**:
@@ -58,6 +59,30 @@
 ### 実機の状態
 - VE1: `/etc/systemd/system/docker.service.d/override.conf` 作成・`daemon-reload`済み(③層の一部完了)
 - Node0: 誤って作成した同名ファイルは削除済み、クリーンな状態
+
+---
+
+## 2026-08-07 (8) 9-5-2完了: Node0全体reboot検証成功(up=時間の調整含む)、Step 9完遂
+
+### やったこと
+- Node0で`reboot`を実行し、ホスト全体の再起動を検証(9-5-2)。VE2/VE1とも手動操作なしで`running`になり①層(Proxmox起動順序)は成功
+- ただし**VE1起動直後、Immich Web UIにアクセスできない事象が発生**。診断の結果、`mnt-nfs-pic_tank.mount`が30秒でタイムアウトし、`RequiresMountsFor`の依存でdocker.serviceが起動していないことが判明(`journalctl -b`のログで確認)。原因は`up=90`ではTrueNAS SCALEのフルブート(ミドルウェア起動込み)に対して待ち時間が不足していたこと
+- **これは9-1で意図した通りのfail-safe動作**(ローカルに誤って書き込むのではなく起動しない)であり、nvidia-persistencedの時のような致命的ハングではなく、Immichだけが起動待ちで止まる健全な失敗モードだったことを確認。その後NFSマウントが自然に成功し、docker.serviceも自動起動してコンテナは`healthy`に復帰した
+- 対策として`qm set 100 -startup order=2,up=90,down=60` → **`up=180`**(3分)に拡大
+- 再度Immich Web UIへのアクセスを確認 → 正常。**9-5-2完了、Step 9(Node0/VE1の自動復帰の堅牢化)を完遂**
+
+### 決めたこと
+- `up=`は90秒では不足、180秒に拡大して運用する。万一それでも足りない場合の手動復旧手順(`mount -a && systemctl restart docker`)も確立済みなので、多少のマージン不足があっても即座に破局的な状態にはならない設計になっている
+- Step 9全体(9-0〜9-6)を完了とし、`docs/ve1-immich-build.md`のチェックリストを全て`[x]`に更新
+
+### 未解決・次回やること
+1. **Node0の物理移設**(このセッション後、シャットダウンして移動予定)。移設後は疎通・VLANタグ・全VM自動復帰の再確認が必要
+2. NFS許可アドレスの絞り込み
+3. iCloud/Google Photos初回一括投入
+
+### 実機の状態
+- Node0: 全VM(VE1/VE2)ともhealthy。VE1: `up=180,down=60`設定済み、`nvidia-persistenced`無効化済み。Step 9関連の設定は全て実機投入・検証済み
+- **この直後にNode0を物理移設のためシャットダウン予定**
 
 ---
 

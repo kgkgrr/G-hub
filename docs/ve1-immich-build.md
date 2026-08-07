@@ -490,10 +490,28 @@ qm start 100  # コールドスタート
 - [x] ②層: TrueNAS(VE2)のNFSサービス `Start Automatically` 確認 (2026-08-07、ON確認済み)
 - [x] 9-5-1 VE1単体reboot検証 (2026-08-07、1回目は`nvidia-persistenced`ハングで失敗 → 9-6の対策後の2回目で成功)
 - [x] 9-6 GPUシャットダウンハング対策 (`down=60` + `nvidia-persistenced`無効化、2026-08-07)
-- [ ] 9-5-2 Node0全体reboot検証
+- [x] 9-5-2 Node0全体reboot検証 (2026-08-07、`up=90→180`のチューニングを経て成功)
+
+### 9-5-2実施記録 (2026-08-07)
+
+`reboot`でNode0ホスト全体を再起動 → VE2/VE1とも手動操作なしで`running`になった(①層成功)。ただし**VE1起動時にNFSマウントがタイムアウトし、docker.serviceが起動しない状態が一時発生**。
+
+**原因**: `up=90`(VE2起動シグナル後90秒待ってVE1起動)では、TrueNAS SCALEのフルブート(ミドルウェア起動込み)に対して待ち時間が不足していた。VE1自身の起動処理を含め合計120秒程度でマウントを試みたが、その時点でTrueNASのNFSサービスがまだ応答しておらず、`x-systemd.mount-timeout=30`により**設計通り安全側に倒れてdocker.serviceが起動しなかった**(③層のfail-safeが正しく機能した例。2026-08-07(7)のnvidia-persistencedハングとは異なり、システム全体が無応答になるような致命的な状態ではなく、Immichだけが起動待ちで止まる健全な失敗モード)。その後、マウントが成功し次第docker.serviceも自動的に起動しコンテナは`healthy`になった。
+
+**対策**: `up=90`→**`up=180`**(3分)に拡大。
+```bash
+qm set 100 -startup order=2,up=180,down=60
+```
+
+万一これでも足りない場合の手動復旧手順(fail-safeが発動した場合):
+```bash
+mount -a && systemctl restart docker
+```
+
+**✅ 9-5-2完了。①②③層+GPUハング対策、すべて実機で検証済み。** Immich Web UIアクセスも最終確認済み。
 
 ### 未実施
-- 9-5-2 (Node0ホスト全体の再起動検証) が残っている。①②③層に加えGPUハング対策も含めた総合検証になる
+- 特になし。Step 9 (Node0/VE1の自動復帰の堅牢化) は完了。今後、実際の停電や計画メンテナンスでの再現確認は継続的な検証項目として残る
 
 ---
 
@@ -504,7 +522,7 @@ qm start 100  # コールドスタート
 - [x] Immich Web UIで管理者アカウント作成 (2026-08-04完了)
 - [x] Immich Web UIから写真アップロード → `/mnt/nfs/pic_tank` に実ファイルが書き込まれることを確認 (2026-08-06、`IMG_0473.JPG`。**現行Immichは`library/`ではなく`upload/<ownerId>/<checksum先頭>/.../<uuid>.拡張子`形式で原本を保持する**仕様。DBの`originalPath`と実ファイルパスの一致、`asset`テーブルのチェックサム/thumbhash記録まで確認済み)
 - [x] Postgresデータが `/mnt/ssd-pgdata/postgres` に書き込まれていることを確認 (2026-08-06、`asset`テーブルにメタデータ記録済み)
-- [ ] VE1再起動後もNFS/SSDマウント・docker-composeが自動復旧すること (`/etc/fstab` + Docker再起動ポリシーの動作確認、設計は「Step 9: 再起動時の自動復旧の堅牢化」参照)
+- [x] VE1再起動後もNFS/SSDマウント・docker-composeが自動復旧すること (2026-08-07、Node0ホスト全体の再起動で検証完了。詳細は「Step 9」「9-5-2実施記録」参照)
 - [ ] `nvidia-smi` のVRAM使用量を実測し `plan/04-gpu-ai.md` の見積もり (Frigate導入後3GB前後) と照合、`docs/` へ記録
 
 ---
