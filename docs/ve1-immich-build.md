@@ -406,6 +406,8 @@ qm set 100 -onboot 1 -startup order=2,up=90
 - これはホスト再起動時 (Node0全体) のみ効く。VE1単体の`qm reboot 100`ではVE2は既に稼働中のため無関係
 - `up=90`はTrueNAS SCALEの起動所要時間の見積もり値(提案)。実測して短すぎる/長すぎるようなら調整する
 
+**✅ 2026-08-07実施・確認済み**: `qm set 200 -onboot 1 -startup order=1` / `qm set 100 -onboot 1 -startup order=2,up=90` とも投入。`qm config`で両VMとも反映確認済み(`100`: `onboot: 1` / `startup: order=2,up=90`、`200`: `onboot: 1` / `startup: order=1`)。①層(Proxmox起動順序)完了。
+
 ### 9-5. 検証手順 (提案、段階的に)
 
 1. まず**VE1単体の再起動** (`qm reboot 100`、VE2は稼働継続) で 9-1/9-2 の効果を確認 — 影響範囲が小さい

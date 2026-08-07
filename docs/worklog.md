@@ -10,13 +10,36 @@
 - **決定: Node2(バックアップノード)の構成 (2026-08-06)**: Dynabook R741、玄人志向2台挿しドックで6TB(新品・ZFS化しTrueNAS Replication先/`pic_tank`+`doc_tank`)+3TB(中古・PBSデータストア)を接続。**未構築、実運用優先のため着手は後回し (2026-08-07決定)**、詳細 `plan/01-hardware.md`
 - **中途半端な状態**: VLAN20/25の観察・一時許可が継続中
 - **次の一手 (最大3件)**:
-  1. **Node0/VE1の自動復帰の堅牢化(目下最優先、2026-08-07)** — 9-0確認済み(VE1/VE2とも`onboot`/`startup`未設定)。次は9-4(Proxmox起動順序`qm set`)→9-1/9-2(VE1内systemd)→9-5(段階的reboot検証)。`docs/ve1-immich-build.md` Step 9参照
+  1. **Node0/VE1の自動復帰の堅牢化(目下最優先、2026-08-07)** — 9-0/9-4完了(①Proxmox起動順序設定・反映確認済み)。次は9-1/9-2(VE1内systemd、9-1が実際に適用されたか要確認)→9-5(段階的reboot検証)。`docs/ve1-immich-build.md` Step 9参照
   2. NFS許可アドレスの絞り込み(暫定`192.168.20.0/24`→VE1確定IP`192.168.20.160`)
   3. iCloud/Google Photos初回一括投入(設計ドラフト完了 `docs/immich-bulk-import.md`、Step1のiCloudダウンロード状況確認から着手)
 - **注意中の問題 (最大3件)**:
   1. **`tank`(写真含む)がオフホスト・バックアップ無し** — バックアップ(Node2)は実運用優先のため後回しと決定 (2026-08-07)。ディスク単体障害・盗難・火災に無防備な状態のまま運用・一括投入を進める点は既知のリスクとして許容
   2. **UPS未導入** — 本番投入前に必須 (7/20 実停電あり、正弦波必須)
   3. **PBSクォーラム** — 2ノードでQDevice未手当て(Node2構築後に対応)
+
+---
+
+## 2026-08-07 (4) Step 9-4 (Proxmox起動順序) 実施・確認済み
+
+### やったこと
+- `qm set 200 -onboot 1 -startup order=1` / `qm set 100 -onboot 1 -startup order=2,up=90` を投入
+- `qm config`で両VMとも反映確認 (`100`: `onboot: 1`/`startup: order=2,up=90`、`200`: `onboot: 1`/`startup: order=1`)
+- VE1ゲスト内のdocker.service override投入(9-1)も同じ流れで着手されたが、コマンド実行が途中で中断された形跡があり(貼り付けログに`[Request interrupted by user]`)、**実際に`/etc/systemd/system/docker.service.d/override.conf`が作成され`daemon-reload`まで完了したかは未確認**。次回セッションで要再確認
+
+### 決めたこと
+- ①層(Proxmoxホスト起動順序)は完了と判断してよい
+- ③層(VE1内systemd依存)は完了未確認のまま次に持ち越し。中断状態から「途中まで実行された」可能性もあるため、**再実行前に現在のファイル状態を確認してから**進める(`cat /etc/systemd/system/docker.service.d/override.conf`で存在・内容を確認 → 無ければ最初から、あれば内容が正しいか確認のうえ`daemon-reload`だけ再実行)
+
+### 未解決・次回やること
+1. VE1で9-1(docker.service override)の適用状態を確認 → 未適用なら投入、`systemctl daemon-reload`
+2. 9-2(`/etc/fstab`にタイムアウト追加)
+3. TrueNAS(VE2) GUI側のNFSサービス`Start Automatically`確認(②層、未確認のまま)
+4. 9-5(VE1単体reboot→Node0全体rebootの段階的検証)
+
+### 実機の状態
+- Node0: VE1(onboot=1, startup=order=2,up=90)、VE2(onboot=1, startup=order=1) 設定済み・稼働継続中
+- VE1内のsystemd override適用状況は不明(要確認)
 
 ---
 
