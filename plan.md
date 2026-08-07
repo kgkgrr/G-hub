@@ -50,12 +50,15 @@
 
 ### 次のステップ (この順序を守る)
 
-1. NFS許可アドレスをVE1確定IP(`192.168.20.160`)へ絞り込み、VE1再起動後の自動復旧確認 — 堅牢化の設計は [`docs/ve1-immich-build.md`](docs/ve1-immich-build.md) Step 9 (systemd依存関係 + Proxmox起動順序) にドラフト済み、実機投入・検証は未実施
-2. **Node2 (バックアップノード) 構築** — Dynabook R741にProxmox Backup Server導入 → 玄人志向2台挿しドックで6TB(新品)+3TB(中古)を接続 → 6TBをZFSプール化しTrueNASのReplication Task受け先に、3TBをPBSデータストアに設定 (決定事項: `01-hardware.md`)。**写真データがディスク単体障害から無防備な状態を解消する優先度の高いタスク**
-3. **iCloud/Google Photosからの初回一括投入** — 手順ドラフトは [`docs/immich-bulk-import.md`](docs/immich-bulk-import.md)。**大量の原本データを投入する作業のため、Node2(#2)によるバックアップ確立前の全量投入は推奨しない**(現状`tank`はディスク単体障害に無防備、`plan/03-proxmox.md`の既知ギャップ参照)。少量のテストバッチ投入は先行してよい
-4. VE1へFrigateを統合 (カメラ機材の準備待ちのため保留中、着手時期未定)
-5. Immichの外部公開 (Cloudflare Tunnel + Access、専用LXC)
-6. VE3 (Windows 11) / VE4 (Pi-hole LXC) / VE5 (開発用Linux) / VE6 (Hermesサンドボックス) の構築
+> **方針転換 (2026-08-07)**: 実運用こぎ着けを優先し、**Node2(バックアップ)構築は後回し**にする決定。目下最優先は**Node0(ホスト)の自動復帰**。
+
+1. **Node0/VE1の自動復帰の堅牢化** — 目下最優先。設計は [`docs/ve1-immich-build.md`](docs/ve1-immich-build.md) Step 9 (①Proxmox起動順序 ②TrueNAS NFSサービス自動起動 ③VE1内systemd依存関係) にチェックリスト化済み、実機投入・検証は未実施
+2. NFS許可アドレスをVE1確定IP(`192.168.20.160`)へ絞り込み
+3. **iCloud/Google Photosからの初回一括投入** — 手順ドラフトは [`docs/immich-bulk-import.md`](docs/immich-bulk-import.md)。バックアップ未構築のまま進める決定のため、**大きいバッチほど無保護な原本が増える点は認識のうえで許容**する運用とする(2026-08-06時点の見立てとは優先順位を変更)
+4. **Node2 (バックアップノード) 構築** — 後回し。Dynabook R741にProxmox Backup Server導入 → 玄人志向2台挿しドックで6TB(新品)+3TB(中古)を接続 → 6TBをZFSプール化しTrueNASのReplication Task受け先に、3TBをPBSデータストアに設定 (決定事項: `01-hardware.md`)。実運用が軌道に乗り次第、優先度を引き上げて着手する
+5. VE1へFrigateを統合 (カメラ機材の準備待ちのため保留中、着手時期未定)
+6. Immichの外部公開 (Cloudflare Tunnel + Access、専用LXC)
+7. VE3 (Windows 11) / VE4 (Pi-hole LXC) / VE5 (開発用Linux) / VE6 (Hermesサンドボックス) の構築
 
 ### 未着手・保留
 

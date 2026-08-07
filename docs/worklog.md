@@ -7,16 +7,37 @@
   - VE2 (TrueNAS SCALE、`.151`, hostname `Gnas`): **ストレージ層完成**。プール`tank`(6TB, Stripe) + `pic_tank`/`cam_tank`(NFS)・`doc_tank`(SMB)、共有・ACL設定済み
   - **🎉 VE1 (Immich、VMID=100, hostname `Ghome`, `.160`)**: Debian 13、GTX1650パススルー(グループ15単独確認済み)、Docker+nvidia-container-toolkit、NFS(`pic_tank`)+SSD(`ssd-thin`→`/mnt/ssd-pgdata/postgres`)連携、**Immich稼働中・初回アップロードでエンドツーエンドの動作確認済み**(`docs/ve1-immich-build.md`に詳細・つまずき集)
   - SATA SSD 240GBは`ssd-thin`(LVM-Thin, 235.12GB)化済み、VE1のPostgres用に32GB使用中
-- **決定: Node2(バックアップノード)の構成 (2026-08-06)**: Dynabook R741、玄人志向2台挿しドックで6TB(新品・ZFS化しTrueNAS Replication先/`pic_tank`+`doc_tank`)+3TB(中古・PBSデータストア)を接続。**未構築**、詳細 `plan/01-hardware.md`
+- **決定: Node2(バックアップノード)の構成 (2026-08-06)**: Dynabook R741、玄人志向2台挿しドックで6TB(新品・ZFS化しTrueNAS Replication先/`pic_tank`+`doc_tank`)+3TB(中古・PBSデータストア)を接続。**未構築、実運用優先のため着手は後回し (2026-08-07決定)**、詳細 `plan/01-hardware.md`
 - **中途半端な状態**: VLAN20/25の観察・一時許可が継続中
 - **次の一手 (最大3件)**:
-  1. **Node2構築**(バックアップノード) — `tank`(写真含む)が現状ディスク単体障害に無防備なギャップを解消する優先タスク
-  2. VE1再起動時の自動復旧の堅牢化(設計ドラフト完了 `docs/ve1-immich-build.md` Step 9、実機投入・検証は未実施)
-  3. iCloud/Google Photos初回一括投入(設計ドラフト完了 `docs/immich-bulk-import.md`、Step1のiCloudダウンロード状況確認から着手。**全量投入はNode2構築後を推奨**、テストバッチは先行可)
+  1. **Node0/VE1の自動復帰の堅牢化(目下最優先、2026-08-07)** — 実機投入手順は `docs/ve1-immich-build.md` Step 9 にチェックリスト化済み(9-0確認→9-1/9-2→9-4→9-5検証)。まず9-0の現状確認から
+  2. NFS許可アドレスの絞り込み(暫定`192.168.20.0/24`→VE1確定IP`192.168.20.160`)
+  3. iCloud/Google Photos初回一括投入(設計ドラフト完了 `docs/immich-bulk-import.md`、Step1のiCloudダウンロード状況確認から着手)
 - **注意中の問題 (最大3件)**:
-  1. **`tank`(写真含む)がオフホスト・バックアップ無し** — Node2構築(Tier2 ZFS Replication)まではディスク単体障害・盗難・火災に無防備 (2026-08-06判明)。**初回一括投入で写真量が増えるほど露出も増える点に注意**
+  1. **`tank`(写真含む)がオフホスト・バックアップ無し** — バックアップ(Node2)は実運用優先のため後回しと決定 (2026-08-07)。ディスク単体障害・盗難・火災に無防備な状態のまま運用・一括投入を進める点は既知のリスクとして許容
   2. **UPS未導入** — 本番投入前に必須 (7/20 実停電あり、正弦波必須)
   3. **PBSクォーラム** — 2ノードでQDevice未手当て(Node2構築後に対応)
+
+---
+
+## 2026-08-07 (2) 方針転換: バックアップ後回し・Node0自動復帰を最優先に
+
+### やったこと
+- ユーザーより「先に実運用までこぎ着けたいので、バックアップ構築(Node2)は後回しにする。目先はNode0の自動復帰が急務」との方針決定を受領
+- `docs/ve1-immich-build.md` Step 9を実行チェックリストとして再構成。Node0全体の自動復帰を①Proxmox起動順序(VE2/VE1のonboot・startup) ②VE2(TrueNAS)側のNFSサービス自動起動設定 ③VE1内のsystemd依存関係(docker.service ⇔ NFSマウント)の3層に整理し、まずレベルA(読み取り専用)の現状確認(9-0: `qm config`のonboot/startup、TrueNAS GUIのNFSサービス`Start Automatically`)から始める順序に組み替えた
+- `plan.md`次のステップ・`docs/worklog.md`現在の状態を、この優先順位変更に合わせて更新(Node2構築を後回しに変更、Node0/VE1自動復帰を最上位に)
+
+### 決めたこと
+- **Node2(バックアップ)構築は後回し**。実運用を軌道に乗せることを優先し、`tank`がオフホスト・バックアップ無しの状態のまま一括投入等を進めることを許容する(リスクは認識のうえでの意図的な優先順位判断、ユーザー指示による)
+- **Node0/VE1自動復帰の実行順序を確定**: 9-0(現状確認、レベルA)→9-1/9-2(VE1内systemd、レベルB1)→9-4(Proxmox起動順序、レベルB1)→9-5(段階的reboot検証)
+
+### 未解決・次回やること
+1. (ユーザー側) 9-0の現状確認コマンド実行 (`qm config 100`/`qm config 200`のonboot/startup、TrueNAS GUIのNFSサービス自動起動設定)
+2. 確認結果を踏まえてStep 9を実機投入
+3. 自動復帰の検証完了後、NFS許可絞り込み → iCloud/Google Photos初回投入へ進む
+
+### 実機の状態
+- 変更なし(方針決定とドキュメント整備のみ)。VE1/VE2は稼働継続中
 
 ---
 
