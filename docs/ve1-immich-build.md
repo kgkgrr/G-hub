@@ -381,16 +381,32 @@ systemctl daemon-reload
 - `RequiresMountsFor=` は指定パスをカバーするマウントユニットへの依存 (`Requires`+`After`) を自動生成する systemd の仕組み。`/etc/fstab` の当該エントリに紐づく。
 - 効果: マウントが失敗/未完了ならdocker.serviceも起動を待つ/失敗する → Immichコンテナは起動しない。**「ローカルディスクに誤って書き込む」より「起動しない」方が安全**という判断 (`CLAUDE.md` §2「わからない時は止まる」に準拠)。
 
-### 9-2. `/etc/fstab` にタイムアウトを追加 (レベルB1)
+**✅ 2026-08-07実施・確認済み**: `root@Ghome:~#`(VE1)で実行、`cat`で内容確認済み(`RequiresMountsFor=/mnt/nfs/pic_tank /mnt/ssd-pgdata`含む)。
+**⚠️ つまずき**: 初回は誤ってNode0(Proxmoxホスト)側で実行してしまった。Node0にはdocker.serviceが存在しないため実害は無かったと判断し、Node0側の`override.conf`を削除して後片付け → 改めてVE1へSSHしてから再実行し、正しく反映された。**教訓**: ゲストOS向けコマンドを提示する際は、プロンプトに `root@Ghome:~#` のようなホスト名が出ているかで実行先を都度確認する習慣が必要。
 
-TrueNAS(VE2)が何らかの理由で応答しない場合、デフォルト(hard mount)だとVE1の起動が無期限に待たされうる。タイムアウトを追加し、失敗を早期に検知できるようにする。
+### 9-2. `/etc/fstab` にタイムアウトを追加 (レベルB1、VE1ゲスト内)
 
+TrueNAS(VE2)が何らかの理由で応答しない場合、デフォルト(hard mount)だとVE1の起動が無期限に待たされうる。タイムアウトを追加し、失敗を早期に検知できるようにする。**以下もVE1(`root@Ghome:~#`)で実行する(9-1と同じホスト)。**
+
+```bash
+# 現在のfstabのpic_tank行を確認
+grep pic_tank /etc/fstab
+
+# 変更前にバックアップ
+cp /etc/fstab /etc/fstab.bak-$(date +%Y%m%d)
+
+# defaults,_netdev の直後に x-systemd.mount-timeout=30 を追加
+sed -i 's#\(192\.168\.20\.151:/mnt/tank/pic_tank /mnt/nfs/pic_tank nfs4 \)defaults,_netdev#\1defaults,_netdev,x-systemd.mount-timeout=30#' /etc/fstab
+
+# 反映確認
+grep pic_tank /etc/fstab
+systemctl daemon-reload
 ```
-192.168.20.151:/mnt/tank/pic_tank /mnt/nfs/pic_tank nfs4 defaults,_netdev,x-systemd.mount-timeout=30 0 0
-```
 
+- `defaults,_netdev,x-systemd.mount-timeout=30` になっていればOK (既に`x-systemd.mount-timeout`が含まれている場合はsedがマッチせず無変化になるだけなので、再実行しても安全)
 - `soft` マウントへの変更は行わない (書き込み中の切断でデータ破損しうるため非推奨。hard mountを維持しつつ、systemd起動待ちだけタイムアウトさせる)
 - タイムアウトした場合は9-1によりdocker/Immichは起動しない → 手動で `mount -a && systemctl restart docker` の復旧が必要になる。これは意図した挙動 (自動で誤動作するより安全)
+- `/mnt/ssd-pgdata`(ローカルディスク、UUID指定)側はネットワーク越しではないため今回のタイムアウト追加は不要
 
 ### 9-4. Proxmoxホスト側: VM起動順序の設定 (レベルB1、`qm set`)
 

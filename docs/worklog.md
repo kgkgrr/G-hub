@@ -10,13 +10,34 @@
 - **決定: Node2(バックアップノード)の構成 (2026-08-06)**: Dynabook R741、玄人志向2台挿しドックで6TB(新品・ZFS化しTrueNAS Replication先/`pic_tank`+`doc_tank`)+3TB(中古・PBSデータストア)を接続。**未構築、実運用優先のため着手は後回し (2026-08-07決定)**、詳細 `plan/01-hardware.md`
 - **中途半端な状態**: VLAN20/25の観察・一時許可が継続中
 - **次の一手 (最大3件)**:
-  1. **Node0/VE1の自動復帰の堅牢化(目下最優先、2026-08-07)** — 9-0/9-4完了(①Proxmox起動順序設定・反映確認済み)。次は9-1/9-2(VE1内systemd、9-1が実際に適用されたか要確認)→9-5(段階的reboot検証)。`docs/ve1-immich-build.md` Step 9参照
+  1. **Node0/VE1の自動復帰の堅牢化(目下最優先、2026-08-07)** — 9-0/9-4/9-1完了。次は9-2(`/etc/fstab`タイムアウト、VE1内)→TrueNAS NFS自動起動確認(②層)→9-5(段階的reboot検証)。`docs/ve1-immich-build.md` Step 9参照
   2. NFS許可アドレスの絞り込み(暫定`192.168.20.0/24`→VE1確定IP`192.168.20.160`)
   3. iCloud/Google Photos初回一括投入(設計ドラフト完了 `docs/immich-bulk-import.md`、Step1のiCloudダウンロード状況確認から着手)
 - **注意中の問題 (最大3件)**:
   1. **`tank`(写真含む)がオフホスト・バックアップ無し** — バックアップ(Node2)は実運用優先のため後回しと決定 (2026-08-07)。ディスク単体障害・盗難・火災に無防備な状態のまま運用・一括投入を進める点は既知のリスクとして許容
   2. **UPS未導入** — 本番投入前に必須 (7/20 実停電あり、正弦波必須)
   3. **PBSクォーラム** — 2ノードでQDevice未手当て(Node2構築後に対応)
+
+---
+
+## 2026-08-07 (5) Step 9-1 (docker.service override) 実施・確認済み(誤操作からの復旧含む)
+
+### やったこと
+- 9-1(docker.serviceにNFSマウント依存 `RequiresMountsFor=` を追加)を実行 → **⚠️ 誤ってNode0(Proxmoxホスト自身)のシェルで実行してしまった**(プロンプトが`root@node0:~#`だったことで発覚)
+- Node0にdocker.serviceが存在しないため実害は無いと判断し、Node0側の`/etc/systemd/system/docker.service.d/override.conf`を削除(単一ファイル指定 + `rmdir`、ワイルドカード`rm -rf`は使わず)、`systemctl daemon-reload`で後片付け
+- 改めてVE1(`192.168.20.160`)へSSHし、同じ内容を投入 → `cat`で内容確認(`root@Ghome:~#`プロンプトで実行されたことを確認)
+
+### 決めたこと
+- **今後、ゲストOS(VE1)向けコマンドを提示する際は、プロンプト表示(ホスト名)で実行先を確認する運用を徹底する**。今回のミスは実害が無かったが、内容によっては(例: ディスク操作系)重大事故になりうる教訓として記録
+
+### 未解決・次回やること
+1. 9-2(`/etc/fstab`にNFSタイムアウト追加、VE1内)
+2. TrueNAS(VE2) GUI側のNFSサービス`Start Automatically`確認(②層、未確認のまま)
+3. 9-5(VE1単体reboot→Node0全体rebootの段階的検証)
+
+### 実機の状態
+- VE1: `/etc/systemd/system/docker.service.d/override.conf` 作成・`daemon-reload`済み(③層の一部完了)
+- Node0: 誤って作成した同名ファイルは削除済み、クリーンな状態
 
 ---
 
