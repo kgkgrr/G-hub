@@ -335,6 +335,61 @@ cat /tmp/immich-hwaccel-ml.yml  # GPU(cuda)ブロックの照合用
 
 ---
 
+## Step 9: 再起動時の自動復旧の堅牢化 (ドラフト・未実施)
+
+**課題**: `docker compose` の `restart: unless-stopped` はdockerデーモン再起動時にコンテナを復元するが、これは「NFSマウントが完了している」ことを保証しない。VE1がホスト(Node0)ごと再起動する場合、**dockerがNFS(`tank/pic_tank`)のマウント完了より先に起動すると**、`/mnt/nfs/pic_tank` はローカルの空ディレクトリのままコンテナがそこへbind mountしてしまい、Immichがそのローカル空領域に書き込みを始める(その後NFSが遅れてマウントされると書き込んだファイルは覆い隠され、参照不能になる)。**サイレントなデータ配置ミスであり気付きにくい**ため、fail-safe(マウント未完了なら起動させない)で設計する。
+
+### 9-1. VE1ゲスト内: docker.serviceにNFSマウント依存を追加 (レベルB1)
+
+```bash
+mkdir -p /etc/systemd/system/docker.service.d
+cat > /etc/systemd/system/docker.service.d/override.conf <<'EOF'
+[Unit]
+After=network-online.target
+Wants=network-online.target
+RequiresMountsFor=/mnt/nfs/pic_tank /mnt/ssd-pgdata
+EOF
+systemctl daemon-reload
+```
+
+- `RequiresMountsFor=` は指定パスをカバーするマウントユニットへの依存 (`Requires`+`After`) を自動生成する systemd の仕組み。`/etc/fstab` の当該エントリに紐づく。
+- 効果: マウントが失敗/未完了ならdocker.serviceも起動を待つ/失敗する → Immichコンテナは起動しない。**「ローカルディスクに誤って書き込む」より「起動しない」方が安全**という判断 (`CLAUDE.md` §2「わからない時は止まる」に準拠)。
+
+### 9-2. `/etc/fstab` にタイムアウトを追加 (レベルB1)
+
+TrueNAS(VE2)が何らかの理由で応答しない場合、デフォルト(hard mount)だとVE1の起動が無期限に待たされうる。タイムアウトを追加し、失敗を早期に検知できるようにする。
+
+```
+192.168.20.151:/mnt/tank/pic_tank /mnt/nfs/pic_tank nfs4 defaults,_netdev,x-systemd.mount-timeout=30 0 0
+```
+
+- `soft` マウントへの変更は行わない (書き込み中の切断でデータ破損しうるため非推奨。hard mountを維持しつつ、systemd起動待ちだけタイムアウトさせる)
+- タイムアウトした場合は9-1によりdocker/Immichは起動しない → 手動で `mount -a && systemctl restart docker` の復旧が必要になる。これは意図した挙動 (自動で誤動作するより安全)
+
+### 9-3. Proxmoxホスト側: VM起動順序の設定 (レベルB1、`qm set`)
+
+VE2(TrueNAS, NFSサーバー)がVE1より先に、かつ十分な起動猶予を持って立ち上がるようにする。**現状の `onboot`/`startup` 設定は未確認 (`qm config 100` / `qm config 200` で要確認)。**
+
+```bash
+qm set 200 -onboot 1 -startup order=1
+qm set 100 -onboot 1 -startup order=2,up=90
+```
+
+- `order=1`→`order=2`: VE2を先に起動開始
+- `up=90`: VE2の起動シグナル後、Proxmoxが次(VE1)の起動に進むまで90秒待つ (TrueNASのブート〜NFSサービス起動には余裕を見る)
+- これはホスト再起動時 (Node0全体) のみ効く。VE1単体の`qm reboot 100`ではVE2は既に稼働中のため無関係
+
+### 9-4. 検証手順 (提案、段階的に)
+
+1. まず**VE1単体の再起動** (`qm reboot 100`、VE2は稼働継続) で 9-1/9-2 の効果を確認 — 影響範囲が小さい
+   - 確認項目: `systemctl status docker`、`mountpoint /mnt/nfs/pic_tank`、`docker compose ps`(全`healthy`)、Web UIから疎通確認
+2. 上記が確認できてから、**Node0ホスト全体の再起動**で 9-3 (VM起動順序)を検証する。これは全VM (VE1/VE2) に影響するため、実施前に「何をやり直すことになるか」(CLAUDE.md B2判断基準)を踏まえて確認のうえで進める
+
+### 未実施
+- 9-1〜9-3とも設計のみ。実機投入・検証はこれから (実行はユーザー本人、`docs/ve1-immich-build.md` 冒頭の役割分担のとおり)
+
+---
+
 ## 起動後チェックリスト
 
 - [x] `docker compose ps` で全コンテナ `healthy`/`Up` (2026-08-04確認済み)
@@ -342,7 +397,7 @@ cat /tmp/immich-hwaccel-ml.yml  # GPU(cuda)ブロックの照合用
 - [x] Immich Web UIで管理者アカウント作成 (2026-08-04完了)
 - [x] Immich Web UIから写真アップロード → `/mnt/nfs/pic_tank` に実ファイルが書き込まれることを確認 (2026-08-06、`IMG_0473.JPG`。**現行Immichは`library/`ではなく`upload/<ownerId>/<checksum先頭>/.../<uuid>.拡張子`形式で原本を保持する**仕様。DBの`originalPath`と実ファイルパスの一致、`asset`テーブルのチェックサム/thumbhash記録まで確認済み)
 - [x] Postgresデータが `/mnt/ssd-pgdata/postgres` に書き込まれていることを確認 (2026-08-06、`asset`テーブルにメタデータ記録済み)
-- [ ] VE1再起動後もNFS/SSDマウント・docker-composeが自動復旧すること (`/etc/fstab` + Docker再起動ポリシーの動作確認)
+- [ ] VE1再起動後もNFS/SSDマウント・docker-composeが自動復旧すること (`/etc/fstab` + Docker再起動ポリシーの動作確認、設計は「Step 9: 再起動時の自動復旧の堅牢化」参照)
 - [ ] `nvidia-smi` のVRAM使用量を実測し `plan/04-gpu-ai.md` の見積もり (Frigate導入後3GB前後) と照合、`docs/` へ記録
 
 ---
@@ -350,6 +405,8 @@ cat /tmp/immich-hwaccel-ml.yml  # GPU(cuda)ブロックの照合用
 ## 未実施・後続タスク
 
 1. NFS許可アドレスをVE1確定IPへ絞り込み (VE2/TrueNAS側の作業)
-2. Cloudflare Tunnel + Access でのImmich外部公開 (専用LXC、`plan/03-proxmox.md` の外部公開戦略)
-3. Frigateのdocker-compose統合 (別セッション、GPU共有の実測を踏まえて追加)
-4. ZFSスナップショット/PBSバックアップ対象へVE1を追加
+2. VE1再起動時の自動復旧の堅牢化・検証 (「Step 9」参照)
+3. **iCloud/Google Photosからの初回一括投入** → 手順は [`docs/immich-bulk-import.md`](immich-bulk-import.md) に分離
+4. Cloudflare Tunnel + Access でのImmich外部公開 (専用LXC、`plan/03-proxmox.md` の外部公開戦略)
+5. Frigateのdocker-compose統合 (別セッション、GPU共有の実測を踏まえて追加)
+6. ZFSスナップショット/PBSバックアップ対象へVE1を追加

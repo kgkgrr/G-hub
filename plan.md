@@ -1,6 +1,6 @@
 # ホームラボ構築計画 (Proxmox VE) — インデックス
 
-最終更新: 2026-08-06
+最終更新: 2026-08-07
 
 > **このファイルは索引と現況のみ。** 詳細は `plan/` 以下の各分冊を参照。
 > セッション開始時はこのファイルを読み、必要な分冊だけを追加で開くこと。
@@ -50,11 +50,12 @@
 
 ### 次のステップ (この順序を守る)
 
-1. NFS許可アドレスをVE1確定IP(`192.168.20.160`)へ絞り込み、VE1再起動後の自動復旧確認
+1. NFS許可アドレスをVE1確定IP(`192.168.20.160`)へ絞り込み、VE1再起動後の自動復旧確認 — 堅牢化の設計は [`docs/ve1-immich-build.md`](docs/ve1-immich-build.md) Step 9 (systemd依存関係 + Proxmox起動順序) にドラフト済み、実機投入・検証は未実施
 2. **Node2 (バックアップノード) 構築** — Dynabook R741にProxmox Backup Server導入 → 玄人志向2台挿しドックで6TB(新品)+3TB(中古)を接続 → 6TBをZFSプール化しTrueNASのReplication Task受け先に、3TBをPBSデータストアに設定 (決定事項: `01-hardware.md`)。**写真データがディスク単体障害から無防備な状態を解消する優先度の高いタスク**
-3. VE1へFrigateを統合 (カメラ機材の準備待ちのため保留中、着手時期未定)
-4. Immichの外部公開 (Cloudflare Tunnel + Access、専用LXC)
-5. VE3 (Windows 11) / VE4 (Pi-hole LXC) / VE5 (開発用Linux) / VE6 (Hermesサンドボックス) の構築
+3. **iCloud/Google Photosからの初回一括投入** — 手順ドラフトは [`docs/immich-bulk-import.md`](docs/immich-bulk-import.md)。**大量の原本データを投入する作業のため、Node2(#2)によるバックアップ確立前の全量投入は推奨しない**(現状`tank`はディスク単体障害に無防備、`plan/03-proxmox.md`の既知ギャップ参照)。少量のテストバッチ投入は先行してよい
+4. VE1へFrigateを統合 (カメラ機材の準備待ちのため保留中、着手時期未定)
+5. Immichの外部公開 (Cloudflare Tunnel + Access、専用LXC)
+6. VE3 (Windows 11) / VE4 (Pi-hole LXC) / VE5 (開発用Linux) / VE6 (Hermesサンドボックス) の構築
 
 ### 未着手・保留
 

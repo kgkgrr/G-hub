@@ -11,12 +11,37 @@
 - **中途半端な状態**: VLAN20/25の観察・一時許可が継続中
 - **次の一手 (最大3件)**:
   1. **Node2構築**(バックアップノード) — `tank`(写真含む)が現状ディスク単体障害に無防備なギャップを解消する優先タスク
-  2. NFS許可アドレスの絞り込み(暫定`192.168.20.0/24`→VE1確定IP`192.168.20.160`)
-  3. VE1再起動テスト(NFS/SSDマウント・Docker自動復旧の確認)
+  2. VE1再起動時の自動復旧の堅牢化(設計ドラフト完了 `docs/ve1-immich-build.md` Step 9、実機投入・検証は未実施)
+  3. iCloud/Google Photos初回一括投入(設計ドラフト完了 `docs/immich-bulk-import.md`、Step1のiCloudダウンロード状況確認から着手。**全量投入はNode2構築後を推奨**、テストバッチは先行可)
 - **注意中の問題 (最大3件)**:
-  1. **`tank`(写真含む)がオフホスト・バックアップ無し** — Node2構築(Tier2 ZFS Replication)まではディスク単体障害・盗難・火災に無防備 (2026-08-06判明)
+  1. **`tank`(写真含む)がオフホスト・バックアップ無し** — Node2構築(Tier2 ZFS Replication)まではディスク単体障害・盗難・火災に無防備 (2026-08-06判明)。**初回一括投入で写真量が増えるほど露出も増える点に注意**
   2. **UPS未導入** — 本番投入前に必須 (7/20 実停電あり、正弦波必須)
   3. **PBSクォーラム** — 2ノードでQDevice未手当て(Node2構築後に対応)
+
+---
+
+## 2026-08-07 Immich運用フェーズ着手: 再起動自動復旧・初回一括投入の設計
+
+### やったこと
+- ユーザーからImmichの運用フェーズ着手を依頼(①コンテナの自動復帰、②iCloud/Google Photosからの初回一括投入)。`plan.md`/`docs/worklog.md`/`docs/ve1-immich-build.md`を確認し前提を把握
+- 作業端末はMac確定(iCloud側がフル実体ダウンロード済みかは未確認、ユーザー側で確認予定)と確認
+- **①再起動時の自動復旧**: 現状 `docker compose` の `restart: unless-stopped` だけでは、dockerがNFSマウント完了前に起動した場合に `/mnt/nfs/pic_tank` がローカル空ディレクトリのままbind mountされる潜在リスク(サイレントな誤配置)を指摘。対策として `docs/ve1-immich-build.md` に **Step 9** を追加: (a) VE1ゲスト内 `docker.service` へ `RequiresMountsFor=` のsystemd drop-in、(b) `/etc/fstab` に `x-systemd.mount-timeout` 追加、(c) Proxmoxホスト側でVE2→VE1の起動順序・up-delay設定 (`qm set -onboot -startup`)、(d) 検証はVE1単体reboot→Node0全体rebootの段階実施を提案
+- **②初回一括投入**: `docs/immich-bulk-import.md` を新規作成。iCloud側は`osxphotos`でのエクスポート(GUI手動選択は非現実的と判断)、Google Photos側はTakeout→**Google Photos Takeout Helper (GPTH)** でJSONサイドカーの日時をEXIF/mtimeへ前処理してからImmich CLI (`@immich/cli`)で投入する設計とした。投入順序はiCloud→Google Photos(チェックサム重複検知を効かせやすくするため)、投入後に管理画面Duplicatesで見た目重複をレビューする運用とした
+- バッチ分割の必要性(GPU VRAM 4GB・ジョブキュー詰まり対策、`plan/04-gpu-ai.md`のconcurrency調整方針と接続)、および**Node2(バックアップ)未構築のまま大量の原本を投入するリスク**を指摘し、全量投入はNode2構築後を推奨する形で`plan.md`次のステップに反映
+
+### 決めたこと
+- iCloudエクスポートは `osxphotos` を第一候補とする(GUI Exportは大量枚数に非現実的)。**却下**: Apple公式データリクエスト(privacy.apple.com) — Macに写真アプリがあり同期済みなら不要、到着まで数日かかり形式も扱いにくい
+- Google Photos側は生Takeoutをそのまま投入せず、**GPTHでの前処理を必須ステップ**とする。理由: JSONサイドカーにしかない正しい撮影日時をEXIFへ書き戻さないと、Immichのタイムライン上で日付が壊れるケースがある
+- 自動復旧の堅牢化は、マウント未完了時に「ローカルに誤って書き込む」のではなく「起動させない」fail-safe方針を採用 (`CLAUDE.md`「わからない時は止まる」に準拠)
+- **iCloud/Google Photosの全量投入は、Node2(バックアップ)構築完了後に開始することを推奨**として`plan.md`へ明記。少量のテストバッチ投入(動作確認目的)はNode2構築と並行して先行してよい、とした
+
+### 未解決・次回やること
+1. (ユーザー側) Macの「写真」アプリでiCloudオリジナルのダウンロード設定状況を確認
+2. VE1再起動時の自動復旧(Step 9)を実機投入・検証(まずVE1単体rebootから)
+3. Node2構築の進捗次第で、初回一括投入のテストバッチ開始時期を判断
+
+### 実機の状態
+- 変更なし(設計・ドキュメント整備のみ、実機操作は未実施)。VE1/VE2は稼働継続中
 
 ---
 
